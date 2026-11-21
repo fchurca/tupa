@@ -1,5 +1,6 @@
 import contextlib
 import io
+import json
 import os
 import tempfile
 import unittest
@@ -13,11 +14,11 @@ class ConfigTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        self.ini = Path(self.tmp.name) / "tupa.ini"
+        self.json = Path(self.tmp.name) / "tupa.json"
 
-    def write_ini(self, text):
-        self.ini.write_text(text, encoding="utf-8")
-        return str(self.ini)
+    def write_json(self, data):
+        self.json.write_text(json.dumps(data), encoding="utf-8")
+        return str(self.json)
 
     def clean_env(self, **values):
         return patch.dict(os.environ, values, clear=True)
@@ -28,50 +29,67 @@ class ConfigTests(unittest.TestCase):
     def test_defaults(self):
         with self.clean_env(), patch("sys.argv", ["tupa"]):
             config = load_config([])
-        self.assertEqual(config.sources, ())
+        self.assertEqual(config.members, ("edenor", "edesur"))
+        self.assertEqual(config.member_sources["edenor"], ("cammesa_edenor", "enre_edenor"))
+        self.assertEqual(set(config.sources), {"enre_edenor", "enre_edesur", "cammesa_edenor", "cammesa_edesur"})
         self.assertFalse(config.serve)
         self.assertEqual((config.host, config.port), ("127.0.0.1", 8000))
         self.assertEqual((config.timeout, config.ttl, config.indent), (10.0, 60.0, 2))
-        self.assertEqual(
-            config.customers,
-            {"edenor": 3_400_000, "edesur": 2_700_000, "edelap": 400_000},
-        )
+        self.assertEqual(config.customers["edenor"], 3_400_000)
         self.assertEqual(config.levels, (0.0001, 0.005, 0.05))
+        self.assertEqual(config.demand_levels, (0.15, 0.30, 0.50))
         self.assertEqual(config.thresholds["edenor"].warn, 340)
         self.assertEqual(config.thresholds["edesur"].high, 13_500)
-        self.assertEqual(config.thresholds["edelap"].disaster, 20_000)
+        self.assertEqual(config.demand_thresholds.disaster, 0.50)
 
-    def test_precedence_args_over_env_over_ini(self):
-        path = self.write_ini(
-            "[tupa]\nsources = edenor\nhost = ini.example\nport = 9000\n"
-        )
+    def test_precedence_args_over_env_over_json(self):
+        path = self.write_json({"selected_members": ["edenor"], "host": "json.example", "port": 9000})
         env = {
-            "TUPA_SOURCES": "edesur",
+            "TUPA_MEMBERS": "edesur",
             "TUPA_HOST": "env.example",
             "TUPA_PORT": "9100",
         }
-        argv = ["--config", path, "--host", "args.example", "--source", "edenor"]
+        argv = ["--config", path, "--host", "args.example", "--member", "edenor"]
         with self.clean_env(**env):
             config = load_config(argv)
-        self.assertEqual(config.sources, ("edenor",))
+        self.assertEqual(config.members, ("edenor",))
         self.assertEqual(config.host, "args.example")
         self.assertEqual(config.port, 9100)
 
-    def test_env_over_ini_and_serve_flag(self):
-        path = self.write_ini("[tupa]\nsources=edenor\nhost=ini.example\nserve=no\n")
+    def test_env_over_json_and_serve_flag(self):
+        path = self.write_json({"selected_members": ["edenor"], "host": "json.example", "serve": False})
         with self.clean_env(TUPA_CONFIG=path, TUPA_HOST="env.example", TUPA_SERVE="true"):
             config = load_config([])
         self.assertEqual(config.config_path, path)
-        self.assertEqual(config.sources, ("edenor",))
+        self.assertEqual(config.members, ("edenor",))
         self.assertEqual(config.host, "env.example")
         self.assertTrue(config.serve)
 
-    def test_ini_only(self):
-        path = self.write_ini("[tupa]\nsources=edenor, edesur\nttl=15\n")
+    def test_json_only(self):
+        path = self.write_json({"selected_members": ["edenor", "edesur"], "ttl": 15})
         with self.clean_env():
             config = load_config(["--config", path])
-        self.assertEqual(config.sources, ("edenor", "edesur"))
+        self.assertEqual(config.members, ("edenor", "edesur"))
         self.assertEqual(config.ttl, 15.0)
+
+    def test_json_members_and_sources(self):
+        path = self.write_json(
+            {
+                "members": {"edenor": ["enre_edenor", "cammesa_custom"]},
+                "sources": {
+                    "cammesa_custom": {
+                        "kind": "cammesa_demand",
+                        "member": "edenor",
+                        "region": 9999,
+                    }
+                },
+            }
+        )
+        with self.clean_env(TUPA_CONFIG=path):
+            config = load_config([])
+        self.assertEqual(config.member_sources["edenor"], ("enre_edenor", "cammesa_custom"))
+        self.assertEqual(config.sources["cammesa_custom"].region, 9999)
+        self.assertIn("id_region=9999", config.sources["cammesa_custom"].url)
 
     def test_customers_merge_with_defaults(self):
         with self.clean_env(), patch("sys.argv", ["tupa"]):
@@ -80,15 +98,15 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.customers["edesur"], 2_700_000)
         self.assertEqual(config.thresholds["edenor"].warn, 350)
 
-    def test_customers_from_ini(self):
-        path = self.write_ini("[tupa]\ncustomers=edelap=500000, edenor=4000000\n")
+    def test_customers_from_json(self):
+        path = self.write_json({"customers": {"edelap": 500000, "edenor": 4000000}})
         with self.clean_env(TUPA_CONFIG=path):
             config = load_config([])
         self.assertEqual(config.customers["edelap"], 500_000)
         self.assertEqual(config.thresholds["edelap"].disaster, 25_000)
 
-    def test_levels_from_ini_and_env(self):
-        path = self.write_ini("[tupa]\nlevels=0.001,0.01,0.1\n")
+    def test_levels_from_json_and_env(self):
+        path = self.write_json({"levels": [0.001, 0.01, 0.1]})
         with self.clean_env(TUPA_CONFIG=path):
             config = load_config([])
         self.assertEqual(config.levels, (0.001, 0.01, 0.1))
@@ -98,6 +116,16 @@ class ConfigTests(unittest.TestCase):
             config = load_config([])
         self.assertEqual(config.levels, (0.0002, 0.002, 0.02))
         self.assertEqual(config.thresholds["edelap"].high, 800)
+
+    def test_demand_levels(self):
+        path = self.write_json({"demand_levels": [0.05, 0.15, 0.30]})
+        with self.clean_env(TUPA_CONFIG=path):
+            config = load_config([])
+        self.assertEqual(config.demand_levels, (0.05, 0.15, 0.30))
+        self.assertEqual(config.demand_thresholds.high, 0.15)
+        with self.clean_env(TUPA_DEMAND_LEVELS="0.01,0.02,0.03"):
+            config = load_config(["--demand-levels", "0.02,0.04,0.06"])
+        self.assertEqual(config.demand_levels, (0.02, 0.04, 0.06))
 
     def test_invalid_thresholds_exits_two(self):
         for value in ("0.1,0.01,0.001", "0.1,0.2", "0,0.1,0.2", "0.1,0.2,2"):
@@ -112,15 +140,35 @@ class ConfigTests(unittest.TestCase):
         with self.clean_env(), self.quiet_error(), self.assertRaises(SystemExit) as ctx:
             load_config(["--customers", "edenor=abc"])
         self.assertEqual(ctx.exception.code, 2)
+        with self.clean_env(), self.quiet_error(), self.assertRaises(SystemExit) as ctx:
+            load_config(["--demand-levels", "0.5,0.1,0.2"])
+        self.assertEqual(ctx.exception.code, 2)
 
-    def test_source_deduplication(self):
+    def test_member_deduplication(self):
         with self.clean_env():
-            config = load_config(["--source", "edenor", "edenor"])
-        self.assertEqual(config.sources, ("edenor",))
+            config = load_config(["--member", "edenor", "edenor"])
+        self.assertEqual(config.members, ("edenor",))
 
-    def test_unknown_source_exits_two(self):
+    def test_unknown_member_exits_two(self):
         with self.clean_env(), self.quiet_error(), self.assertRaises(SystemExit) as ctx:
             load_config(["nope"])
+        self.assertEqual(ctx.exception.code, 2)
+
+    def test_source_assigned_to_wrong_member_exits_two(self):
+        path = self.write_json(
+            {
+                "members": {"edenor": ["cammesa_custom"]},
+                "sources": {
+                    "cammesa_custom": {
+                        "kind": "cammesa_demand",
+                        "member": "edesur",
+                        "region": 1,
+                    }
+                },
+            }
+        )
+        with self.clean_env(TUPA_CONFIG=path), self.quiet_error(), self.assertRaises(SystemExit) as ctx:
+            load_config([])
         self.assertEqual(ctx.exception.code, 2)
 
     def test_invalid_number_exits_two(self):
@@ -128,7 +176,28 @@ class ConfigTests(unittest.TestCase):
             load_config(["--port", "70000"])
         self.assertEqual(ctx.exception.code, 2)
 
-    def test_missing_config_exits_two(self):
+    def test_missing_config_uses_defaults(self):
+        with self.clean_env():
+            config = load_config(["--config", str(self.json)])
+        self.assertEqual(config.config_path, str(self.json))
+        self.assertEqual(config.members, ("edenor", "edesur"))
+        self.assertEqual(config.ttl, 60.0)
+
+    def test_missing_config_from_env_uses_defaults(self):
+        with self.clean_env(TUPA_CONFIG=str(self.json)):
+            config = load_config([])
+        self.assertEqual(config.config_path, str(self.json))
+        self.assertEqual(config.members, ("edenor", "edesur"))
+        self.assertEqual(config.ttl, 60.0)
+
+    def test_invalid_json_exits_two(self):
+        self.json.write_text("not json", encoding="utf-8")
         with self.clean_env(), self.quiet_error(), self.assertRaises(SystemExit) as ctx:
-            load_config(["--config", str(self.ini)])
+            load_config(["--config", str(self.json)])
+        self.assertEqual(ctx.exception.code, 2)
+
+    def test_unknown_json_key_exits_two(self):
+        path = self.write_json({"nope": 1})
+        with self.clean_env(), self.quiet_error(), self.assertRaises(SystemExit) as ctx:
+            load_config(["--config", path])
         self.assertEqual(ctx.exception.code, 2)

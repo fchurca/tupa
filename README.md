@@ -23,11 +23,12 @@ In priority order:
 
 ## Design
 
-TUPA runs standalone or from cron, writing JSON to stdout. Sources are
-selectable via arguments, environment, or configuration and default to all.
+TUPA runs standalone or from cron, writing JSON to stdout. Members are
+selectable via arguments, environment, or JSON configuration and default to all.
+Each member combines several datasources and reports the worst known status.
 The output can be used directly or piped to a file and served; individual
-consumers are expected to know to select from the available sources those
-relevant to them. See [example.json](example.json).
+consumers are expected to know to select the members relevant to them. See
+[example.json](example.json).
 
 Configuration: [config.md](config.md).
 
@@ -63,8 +64,8 @@ A `member` carries a `status` (`operational`, `warn`, `high`,
 own `updated` timestamp and a `members` map keyed by member name. Timestamps
 are ISO 8601 / RFC 3339 strings. See the [CDDL schema](status.cddl).
 
-Maintenance events are treated as one stage removed from their physical
-scope.
+Planned outages are outages: they use the same severity thresholds as any other
+outage.
 
 ## Todo
 

@@ -21,6 +21,8 @@ DEFAULT_CUSTOMERS = {
 
 DEFAULT_LEVELS = (0.0001, 0.005, 0.05)
 
+DEFAULT_DEMAND_LEVELS = (0.15, 0.30, 0.50)
+
 
 @lru_cache(maxsize=1)
 def legacy_tls_context() -> ssl.SSLContext:
@@ -215,3 +217,22 @@ def thresholds_for(
     name: str, thresholds: Mapping[str, Thresholds] | None = None
 ) -> Thresholds:
     return (DEFAULT_THRESHOLDS if thresholds is None else thresholds)[name.lower()]
+
+
+@dataclass(frozen=True, slots=True)
+class DemandThresholds:
+    warn: float
+    high: float
+    disaster: float
+
+    def classify(self, deficit: float) -> str:
+        if deficit >= self.disaster:
+            return "disaster"
+        if deficit >= self.high:
+            return "high"
+        if deficit >= self.warn:
+            return "warn"
+        return "operational"
+
+
+DEFAULT_DEMAND_THRESHOLDS = DemandThresholds(*DEFAULT_DEMAND_LEVELS)

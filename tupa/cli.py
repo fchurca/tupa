@@ -22,9 +22,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     status = collect(
-        config.sources or None,
+        config.members or None,
         timeout=config.timeout,
         thresholds=config.thresholds,
+        demand_thresholds=config.demand_thresholds,
+        sources=config.sources,
+        member_sources=config.member_sources,
     )
     try:
         sys.stdout.buffer.write(render(status, indent=config.indent))

@@ -74,9 +74,12 @@ def run_server(config: Config) -> None:
     snapshot = Snapshot(
         config.ttl,
         lambda: collect(
-            config.sources or None,
+            config.members or None,
             timeout=config.timeout,
             thresholds=config.thresholds,
+            demand_thresholds=config.demand_thresholds,
+            sources=config.sources,
+            member_sources=config.member_sources,
         ),
     )
     server = ThreadingHTTPServer((config.host, config.port), Handler)

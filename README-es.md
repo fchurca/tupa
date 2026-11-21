@@ -25,12 +25,12 @@ En orden de prioridad:
 
 ## Diseño
 
-TUPA se ejecuta por sí solo o desde cron y escribe JSON en stdout. Las fuentes
-se seleccionan mediante argumentos, variables de entorno o configuración, y por
-defecto son todas. La salida se puede usar directamente o redirigir a un archivo
-para servirla; se espera que cada consumidor sepa seleccionar de las fuentes
-disponibles aquellas que le resultan relevantes. Véase
-[example.json](example.json).
+TUPA se ejecuta por sí solo o desde cron y escribe JSON en stdout. Los miembros
+se seleccionan mediante argumentos, variables de entorno o configuración JSON, y
+por defecto son todos. Cada miembro combina varias fuentes de datos e informa el
+peor estado conocido. La salida se puede usar directamente o redirigir a un
+archivo para servirla; se espera que cada consumidor sepa seleccionar los
+miembros relevantes. Véase [example.json](example.json).
 
 Configuración: [config.md](config.md) (en inglés).
 
@@ -68,7 +68,8 @@ visuales. Un `system` tiene su propia marca de tiempo `updated` y un mapa
 `members` indexado por nombre de miembro. Las marcas de tiempo son cadenas
 ISO 8601 / RFC 3339. Consulte el [esquema CDDL](status.cddl).
 
-Los eventos de mantenimiento se tratan un nivel por debajo de su alcance físico.
+Los cortes programados son cortes: usan los mismos umbrales de severidad que
+cualquier otro corte.
 
 ## Tareas
 

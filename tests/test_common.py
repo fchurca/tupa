@@ -4,6 +4,7 @@ from pathlib import Path
 
 from tupa.sources.common import (
     DEFAULT_THRESHOLDS,
+    DemandThresholds,
     decode_js_data,
     legacy_tls_context,
     parse_count,
@@ -28,7 +29,7 @@ class CommonTests(unittest.TestCase):
         self.assertEqual(data["cortesServicioMedia"][0]["partido"], "PILAR")
 
     def test_decodes_quotes_escapes_and_unicode(self):
-        data = decode_js_data(fixture("edesur_maintenance.js"))
+        data = decode_js_data(fixture("edesur_planned.js"))
         row = data["cortesProgramados"][0]
         self.assertEqual(row["localidad"], "L'GLEW")
         self.assertEqual(data["cortesProgramados"][1]["partido"], "CA\u00d1UELAS")
@@ -97,3 +98,10 @@ class CommonTests(unittest.TestCase):
             ),
             (2, 2, 3),
         )
+
+    def test_demand_thresholds(self):
+        thresholds = DemandThresholds(0.10, 0.25, 0.50)
+        self.assertEqual(thresholds.classify(0.09), "operational")
+        self.assertEqual(thresholds.classify(0.10), "warn")
+        self.assertEqual(thresholds.classify(0.25), "high")
+        self.assertEqual(thresholds.classify(0.50), "disaster")

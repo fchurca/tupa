@@ -4,9 +4,11 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from tupa.sources import edenor, edesur
+from tupa.model import SourceSpec
+from tupa.sources import cammesa, edenor, edesur
 from tupa.sources.common import (
     USER_AGENT,
+    DemandThresholds,
     fetch_text,
     legacy_tls_context,
     thresholds_from,
@@ -64,9 +66,9 @@ class SourceTests(unittest.TestCase):
         self.assertEqual(high.status, "high")
         self.assertEqual(disaster.status, "disaster")
 
-    def test_maintenance_is_downgraded(self):
-        member, _ = self.fetch(edesur, "edesur_maintenance.js")
-        self.assertEqual(member.status, "operational")
+    def test_planned_outages_use_regular_thresholds(self):
+        member, _ = self.fetch(edesur, "edesur_planned.js")
+        self.assertEqual(member.status, "warn")
         self.assertIn("2 cortes programados", member.comment)
 
     def test_na_value_is_unknown(self):
@@ -76,7 +78,7 @@ class SourceTests(unittest.TestCase):
 
     def test_wrong_empresa_is_rejected(self):
         with patch(
-            "tupa.sources.common.urlopen", return_value=response("edesur_maintenance.js")
+            "tupa.sources.common.urlopen", return_value=response("edesur_planned.js")
         ):
             with self.assertRaisesRegex(ValueError, "unexpected empresa"):
                 edenor.fetch(timeout=1.0)
@@ -85,3 +87,34 @@ class SourceTests(unittest.TestCase):
         with patch("tupa.sources.common.urlopen", return_value=response("broken.js")):
             with self.assertRaises(ValueError):
                 edesur.fetch(timeout=1.0)
+
+    def test_cammesa_high_deficit(self):
+        spec = SourceSpec("cammesa_edenor", "cammesa_demand", "edenor", region=1077)
+        with patch(
+            "tupa.sources.common.urlopen", return_value=response("cammesa_high.json")
+        ) as mock:
+            member = cammesa.fetch_demand(spec=spec, timeout=4.0)
+        self.assertEqual(member.status, "high")
+        self.assertIn("700 MW", member.comment)
+        self.assertIn("30.0% bajo referencia", member.comment)
+        self.assertEqual(member.updated, "2026-11-21T14:00:00-03:00")
+        self.assertEqual(mock.call_args.args[0].full_url, cammesa.url_for(1077))
+        self.assertEqual(mock.call_args.kwargs["timeout"], 4.0)
+
+    def test_cammesa_custom_thresholds(self):
+        spec = SourceSpec("cammesa_edenor", "cammesa_demand", "edenor", region=1077)
+        thresholds = DemandThresholds(0.25, 0.40, 0.50)
+        with patch(
+            "tupa.sources.common.urlopen", return_value=response("cammesa_high.json")
+        ):
+            member = cammesa.fetch_demand(spec=spec, timeout=1.0, thresholds=thresholds)
+        self.assertEqual(member.status, "warn")
+
+    def test_cammesa_without_comparable_data_is_unknown(self):
+        spec = SourceSpec("cammesa_edenor", "cammesa_demand", "edenor", region=1077)
+        with patch(
+            "tupa.sources.common.urlopen", return_value=response("cammesa_no_data.json")
+        ):
+            member = cammesa.fetch_demand(spec=spec, timeout=1.0)
+        self.assertEqual(member.status, "unknown")
+        self.assertIn("sin datos comparables", member.comment)

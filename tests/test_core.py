@@ -2,22 +2,33 @@ import unittest
 from unittest.mock import patch
 
 import tupa.core as core
-from tupa.model import make_member
+from tupa.model import SourceSpec, make_member
+
+
+def spec(name, member):
+    return SourceSpec(name, "enre_outages", member, url="https://example.test", empresa="TEST")
 
 
 class CoreTests(unittest.TestCase):
     def test_collect_maps_failures_to_unknown_and_sorts_members(self):
         seen = []
 
-        def good(timeout, thresholds=None):
-            seen.append(timeout)
+        def good(spec, **kwargs):
+            seen.append(kwargs["timeout"])
             return make_member("operational")
 
-        def bad(timeout, thresholds=None):
+        def bad(spec, **kwargs):
             raise RuntimeError("down")
 
-        with patch.dict(core.SOURCES, {"zeta": good, "alpha": bad}, clear=True):
-            status = core.collect(None, timeout=3.5)
+        sources = {"bad": spec("bad", "alpha"), "good": spec("good", "zeta")}
+        members = {"alpha": ("bad",), "zeta": ("good",)}
+        with patch("tupa.core.fetch_source", side_effect=lambda s, **kw: (bad if s.name == "bad" else good)(s, **kw)):
+            status = core.collect(
+                None,
+                timeout=3.5,
+                sources=sources,
+                member_sources=members,
+            )
 
         self.assertRegex(
             status["updated"],
@@ -29,19 +40,17 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(status["members"]["zeta"]["status"], "operational")
         self.assertEqual(seen, [3.5])
 
-    def test_collect_honours_selected_names(self):
+    def test_collect_honours_selected_members(self):
         calls = []
 
-        def one(timeout, thresholds=None):
-            calls.append("one")
+        def one(spec, **kwargs):
+            calls.append(spec.name)
             return make_member("operational")
 
-        def two(timeout, thresholds=None):
-            calls.append("two")
-            return make_member("operational")
-
-        with patch.dict(core.SOURCES, {"one": one, "two": two}, clear=True):
-            status = core.collect(["two"], timeout=1.0)
+        sources = {"one": spec("one", "one"), "two": spec("two", "two")}
+        members = {"one": ("one",), "two": ("two",)}
+        with patch("tupa.core.fetch_source", side_effect=one):
+            status = core.collect(["two"], timeout=1.0, sources=sources, member_sources=members)
 
         self.assertEqual(calls, ["two"])
         self.assertEqual(list(status["members"]), ["two"])
@@ -49,21 +58,81 @@ class CoreTests(unittest.TestCase):
     def test_collect_forwards_thresholds(self):
         received = []
 
-        def one(timeout, thresholds=None):
-            received.append(thresholds)
+        def one(spec, **kwargs):
+            received.append(kwargs)
             return make_member("operational")
 
-        thresholds = {"one": object()}
-        with patch.dict(core.SOURCES, {"one": one}, clear=True):
-            core.collect(None, timeout=1.0, thresholds=thresholds)
-        self.assertEqual(received, [thresholds])
+        thresholds = {"edenor": object()}
+        demand_thresholds = object()
+        sources = {"one": spec("one", "edenor")}
+        members = {"edenor": ("one",)}
+        with patch("tupa.core.fetch_source", side_effect=one):
+            core.collect(
+                None,
+                timeout=1.0,
+                thresholds=thresholds,
+                demand_thresholds=demand_thresholds,
+                sources=sources,
+                member_sources=members,
+            )
+        self.assertEqual(received[0]["thresholds"], thresholds)
+        self.assertIs(received[0]["demand_thresholds"], demand_thresholds)
+
+    def test_member_uses_worst_known_source(self):
+        def enre(spec, **kwargs):
+            return make_member("warn", comment="138 usuarios", updated="2026-01-01T00:00:00-03:00")
+
+        def cammesa(spec, **kwargs):
+            return make_member("disaster", comment="60% bajo", updated="2026-01-01T00:01:00-03:00")
+
+        sources = {
+            "enre": spec("enre", "edenor"),
+            "cammesa": SourceSpec("cammesa", "cammesa_demand", "edenor", region=1077),
+        }
+        members = {"edenor": ("enre", "cammesa")}
+
+        def fake(spec, **kwargs):
+            return enre(spec, **kwargs) if spec.kind == "enre_outages" else cammesa(spec, **kwargs)
+
+        with patch("tupa.core.fetch_source", side_effect=fake):
+            status = core.collect(None, timeout=1.0, sources=sources, member_sources=members)
+
+        member = status["members"]["edenor"]
+        self.assertEqual(member["status"], "disaster")
+        self.assertEqual(member["updated"], "2026-01-01T00:01:00-03:00")
+        self.assertIn("cammesa: 60% bajo", member["comment"])
+        self.assertIn("enre: 138 usuarios", member["comment"])
+
+    def test_unknown_is_ignored_unless_all_unknown(self):
+        sources = {"a": spec("a", "edenor"), "b": spec("b", "edenor")}
+        members = {"edenor": ("a", "b")}
+
+        def fake(spec, **kwargs):
+            if spec.name == "a":
+                return make_member("operational")
+            return make_member("unknown", comment="sin datos")
+
+        with patch("tupa.core.fetch_source", side_effect=fake):
+            status = core.collect(None, timeout=1.0, sources=sources, member_sources=members)
+        self.assertEqual(status["members"]["edenor"]["status"], "operational")
+
+        with patch("tupa.core.fetch_source", return_value=make_member("unknown")):
+            status = core.collect(None, timeout=1.0, sources=sources, member_sources=members)
+        self.assertEqual(status["members"]["edenor"]["status"], "unknown")
+
+    def test_empty_member_is_unknown(self):
+        with patch("tupa.core.fetch_source") as fetch:
+            status = core.collect(
+                None, timeout=1.0, sources={}, member_sources={"edenor": ()}
+            )
+        fetch.assert_not_called()
+        self.assertEqual(status["members"]["edenor"]["status"], "unknown")
 
     def test_status_matches_cddl_shape(self):
-        def one(timeout, thresholds=None):
-            return make_member("warn", comment="detalle")
-
-        with patch.dict(core.SOURCES, {"one": one}, clear=True):
-            status = core.collect(None, timeout=1.0)
+        sources = {"one": spec("one", "one")}
+        members = {"one": ("one",)}
+        with patch("tupa.core.fetch_source", return_value=make_member("warn", comment="detalle")):
+            status = core.collect(None, timeout=1.0, sources=sources, member_sources=members)
 
         self.assertEqual(set(status), {"updated", "members"})
         member = status["members"]["one"]

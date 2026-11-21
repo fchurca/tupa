@@ -4,7 +4,7 @@ import re
 from collections.abc import Mapping
 from datetime import datetime
 
-from ..model import AR_TZ, Member, maintenance, make_member
+from ..model import AR_TZ, Member, make_member
 from .common import (
     ACTIVE_KEYS,
     PLANNED_KEYS,
@@ -58,8 +58,6 @@ def fetch_enre(
     active = count_rows(data, ACTIVE_KEYS)
     planned = count_rows(data, PLANNED_KEYS)
     status = thresholds_for(name, thresholds).classify(affected)
-    if active == 0 and planned > 0:
-        status = maintenance(status)
 
     detail = [f"{affected} usuarios sin suministro", f"{active} cortes activos"]
     if planned:
