@@ -1,4 +1,4 @@
-# TUPA: Telemetría Unificada de Potencia Argentina
+# TUPA⚡: Telemetría Unificada de Potencia Argentina
 
 > **Aviso:** Este documento es una traducción. El documento maestro es
 > [README.md](README.md); en caso de discrepancia, prevalece ese archivo.

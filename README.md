@@ -1,4 +1,4 @@
-# TUPA: Unified Argentine Power Telemetry
+# TUPA⚡: Telemetría Unificada de Potencia Argentina
 
 TUPA is a project aimed at aggregating and displaying the status of the
 Argentine electrical grid, intended for feeding messaging bots and other

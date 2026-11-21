@@ -168,12 +168,131 @@ _STYLE = """    <style>
       }
       a { color: #8ba4ff; text-decoration: none; }
       a:hover { text-decoration: underline; }
+      .sources-button, .dialog-ok {
+        padding: 6px 12px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        background: rgba(139, 164, 255, 0.12);
+        color: var(--text);
+        cursor: pointer;
+        font: inherit;
+        font-size: 0.78rem;
+      }
+      .sources-button:hover, .dialog-ok:hover { border-color: #8ba4ff; }
+      .sources-dialog {
+        width: min(880px, calc(100% - 32px));
+        max-height: min(80vh, 720px);
+        padding: 0;
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        background: #111a2e;
+        color: var(--text);
+        box-shadow: 0 24px 70px rgba(0, 0, 0, 0.5);
+      }
+      .sources-dialog::backdrop {
+        background: rgba(5, 8, 18, 0.72);
+        backdrop-filter: blur(3px);
+      }
+      .dialog-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 18px 22px;
+        border-bottom: 1px solid var(--border);
+      }
+      .dialog-head h2 { font-size: 1.1rem; }
+      .table-scroll { max-height: calc(80vh - 80px); overflow: auto; }
+      table { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
+      th, td {
+        padding: 11px 16px;
+        border-bottom: 1px solid var(--border);
+        text-align: left;
+        vertical-align: top;
+      }
+      th {
+        position: sticky;
+        top: 0;
+        background: #16203a;
+        color: var(--muted);
+        font-size: 0.7rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      td a { overflow-wrap: anywhere; }
       @media (max-width: 640px) {
         .wrap { padding: 32px 16px 24px; }
         .masthead { align-items: flex-start; flex-direction: column; }
         .snapshot { text-align: left; }
       }
     </style>"""
+
+_CAMMESA_DOCS = "https://cammesaweb.cammesa.com/informes-y-estadisticas/"
+_ENRE_DOCS = "https://www.enre.gov.ar/mapacortes/index.html"
+
+_SOURCE_ROWS = (
+    (
+        "CAMMESA Edenor (1077)",
+        "https://api.cammesa.com/demanda-svc/demanda/ObtieneDemandaYTemperaturaRegion?id_region=1077",
+        _CAMMESA_DOCS,
+    ),
+    (
+        "CAMMESA Edesur (1078)",
+        "https://api.cammesa.com/demanda-svc/demanda/ObtieneDemandaYTemperaturaRegion?id_region=1078",
+        _CAMMESA_DOCS,
+    ),
+    (
+        "ENRE Edenor",
+        "https://www.enre.gov.ar/paginacorte/js/data_EDN.js",
+        _ENRE_DOCS,
+    ),
+    (
+        "ENRE Edesur",
+        "https://www.enre.gov.ar/paginacorte/js/data_EDS.js",
+        _ENRE_DOCS,
+    ),
+    ("SADI", "https://cammesaweb.cammesa.com/", _CAMMESA_DOCS),
+    ("CAMMESA", "https://cammesaweb.cammesa.com/", _CAMMESA_DOCS),
+    ("Transener", "https://cammesaweb.cammesa.com/", "https://www.enre.gov.ar/"),
+    ("SACME", "https://test.sacme.com.ar/", "https://www.sacme.com.ar/about-us/"),
+    (
+        "Edenor",
+        "https://www.enre.gov.ar/paginacorte/tabla_cortes_edenor.html",
+        _ENRE_DOCS,
+    ),
+    (
+        "Edesur",
+        "https://www.enre.gov.ar/paginacorte/tabla_cortes_edesur.html",
+        _ENRE_DOCS,
+    ),
+    ("Edelap", "https://oceba.gba.gov.ar/", "https://oceba.gba.gov.ar/"),
+    (
+        "CortesDeLuz.com.ar (CDL)",
+        "https://live.cortesdeluz.com.ar/current.json",
+        "https://cortesdeluz.com.ar/openapi.json",
+    ),
+)
+
+_SOURCES_TABLE = (
+    "      <table>\n"
+    "        <thead><tr><th>Nombre</th><th>API</th><th>Documentación</th></tr></thead>\n"
+    "        <tbody>\n"
+    + "".join(
+        f'          <tr><td>{name}</td>'
+        f'<td><a href="{api}" target="_blank" rel="noreferrer">API</a></td>'
+        f'<td><a href="{docs}" target="_blank" rel="noreferrer">Documentación</a></td></tr>\n'
+        for name, api, docs in _SOURCE_ROWS
+    )
+    + "        </tbody>\n"
+    "      </table>\n"
+)
+
+_SCRIPT = """    <script>
+      const sourcesButton = document.getElementById("sources-button");
+      const sourcesDialog = document.getElementById("sources-dialog");
+      sourcesButton.addEventListener("click", () => sourcesDialog.showModal());
+      sourcesDialog.addEventListener("close", () => sourcesButton.focus());
+    </script>"""
 
 
 def _escape(value: object) -> str:
@@ -228,7 +347,7 @@ def render_html(status: dict) -> bytes:
         "<head>\n"
         '  <meta charset="utf-8">\n'
         '  <meta name="viewport" content="width=device-width, initial-scale=1">\n'
-        "  <title>TUPA: Telemetría Unificada de Potencia Argentina</title>\n"
+        "  <title>TUPA⚡: Telemetría Unificada de Potencia Argentina</title>\n"
         f"{_STYLE}\n"
         "</head>\n"
         "<body>\n"
@@ -236,7 +355,7 @@ def render_html(status: dict) -> bytes:
         '    <header class="masthead">\n'
         "      <div>\n"
         '        <p class="eyebrow">Telemetría Unificada de Potencia Argentina</p>\n'
-        "        <h1>TUPA</h1>\n"
+        "        <h1>TUPA⚡</h1>\n"
         '        <p class="subtitle">Estado de la red eléctrica argentina de un vistazo.</p>\n'
         "      </div>\n"
         f'      <div class="snapshot">Captura<time datetime="{updated}">{updated}</time></div>\n'
@@ -249,10 +368,22 @@ def render_html(status: dict) -> bytes:
         "    </main>\n"
         "    <footer>\n"
         '      <span>Los datos son agregados; verificá las decisiones críticas con las fuentes primarias.</span>\n'
+        '      <button type="button" class="sources-button" id="sources-button" aria-haspopup="dialog">Lista de fuentes</button>\n'
         f'      <span class="version">v{version}</span>\n'
         '      <a href="/api">API JSON</a>\n'
-        "    </footer>\n"
-        "  </div>\n"
+        '    </footer>\n'
+        '  </div>\n'
+        '  <dialog id="sources-dialog" class="sources-dialog" aria-labelledby="sources-title">\n'
+        '    <div class="dialog-head">\n'
+        '      <h2 id="sources-title">Lista de fuentes</h2>\n'
+        '      <form method="dialog"><button class="dialog-ok" value="OK">OK</button></form>\n'
+        '    </div>\n'
+        '    <div class="table-scroll">\n'
+        f"{_SOURCES_TABLE}"
+        '    </div>\n'
+        '  </dialog>\n'
+        f"{_SCRIPT}\n"
         "</body>\n"
+
         "</html>\n"
     ).encode("utf-8")
