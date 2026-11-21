@@ -74,7 +74,7 @@ cualquier otro corte.
 ## Tareas
 
 - [X] Documentación en español
-- [ ] POC
+- [X] POC
   - stdlib de Python 3, invocable una vez para cron o como demonio HTTP
   - Docker con python:3.12-slim
   - Implementar salida JSON

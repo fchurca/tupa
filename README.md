@@ -70,7 +70,7 @@ outage.
 ## Todo
 
 - [X] Spanish documentation
-- [ ] POC
+- [X] POC
   - stdlib Python 3, callable once for cron or as a daemon for HTTP
   - Docker with python:3.12-slim
   - Implement JSON output
