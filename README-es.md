@@ -44,6 +44,11 @@ python3 -m tupa
 python3 -m unittest discover -s tests
 ```
 
+### Versiones
+
+La versión se declara una sola vez en `pyproject.toml`. Después de actualizarla,
+creá una etiqueta de Git con el mismo valor `vX.Y.Z`.
+
 ### Fuentes iniciales
 
 El trabajo comienza con las siguientes fuentes:

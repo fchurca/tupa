@@ -8,5 +8,6 @@ ENV PYTHONUNBUFFERED=1 \
     TUPA_PORT=8000
 WORKDIR /app/src
 COPY src/ ./
+COPY pyproject.toml /app/pyproject.toml
 EXPOSE 8000
 CMD ["python", "-m", "tupa", "--serve"]

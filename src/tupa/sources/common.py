@@ -8,7 +8,9 @@ from dataclasses import dataclass
 from functools import lru_cache
 from urllib.request import Request, urlopen
 
-USER_AGENT = "TUPA/0.1 (+power telemetry aggregator)"
+from ..version import get_version
+
+USER_AGENT = f"TUPA/{get_version()} (+power telemetry aggregator)"
 
 ACTIVE_KEYS = ("cortesPreventivos", "cortesServicioMedia", "cortesServicioBaja")
 PLANNED_KEYS = ("cortesProgramados", "cortesComunicados")

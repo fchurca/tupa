@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 from .config import Config
 from .core import collect
 from .output import render
+from .version import get_version
 
 log = logging.getLogger(__name__)
 
@@ -45,7 +46,7 @@ class Snapshot:
 
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
-    server_version = "TUPA/0.1"
+    server_version = f"TUPA/{get_version()}"
 
     def do_GET(self) -> None:
         if urlsplit(self.path).path not in PATHS:

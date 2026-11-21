@@ -42,6 +42,11 @@ python3 -m tupa
 python3 -m unittest discover -s tests
 ```
 
+### Releases
+
+The version is declared once in `pyproject.toml`. After bumping it, create a Git
+tag with the same `vX.Y.Z` value.
+
 ### Initial sources
 
 Work begins with the following sources:
