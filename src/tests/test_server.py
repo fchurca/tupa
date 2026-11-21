@@ -15,14 +15,13 @@ def status(affected):
 
 class SnapshotTests(unittest.TestCase):
     def test_ttl_cache(self):
-        values = iter(["first", "second"])
-        collector = lambda: next(values)
-        snapshot = Snapshot(60.0, collector)
+        values = iter([{"updated": "first"}, {"updated": "second"}])
+        snapshot = Snapshot(60.0, lambda: next(values))
         with patch("tupa.server.time.monotonic", side_effect=[0.0, 10.0, 61.0, 62.0]):
-            self.assertIn(b"first", snapshot.get())
-            self.assertIn(b"first", snapshot.get())
-            self.assertIn(b"second", snapshot.get())
-            self.assertIn(b"second", snapshot.get())
+            self.assertEqual(snapshot.get()["updated"], "first")
+            self.assertEqual(snapshot.get()["updated"], "first")
+            self.assertEqual(snapshot.get()["updated"], "second")
+            self.assertEqual(snapshot.get()["updated"], "second")
 
     def test_stale_on_error(self):
         values = iter([status("operational"), RuntimeError("down")])
@@ -35,9 +34,9 @@ class SnapshotTests(unittest.TestCase):
 
         snapshot = Snapshot(60.0, collector)
         with patch("tupa.server.time.monotonic", side_effect=[0.0, 61.0, 62.0]):
-            self.assertIn(b"operational", snapshot.get())
-            self.assertIn(b"operational", snapshot.get())
-            self.assertIn(b"operational", snapshot.get())
+            self.assertEqual(snapshot.get()["members"]["n"]["status"], "operational")
+            self.assertEqual(snapshot.get()["members"]["n"]["status"], "operational")
+            self.assertEqual(snapshot.get()["members"]["n"]["status"], "operational")
 
 
 class HTTPTests(unittest.TestCase):
@@ -59,20 +58,31 @@ class HTTPTests(unittest.TestCase):
         self.server.server_close()
         self.thread.join(timeout=3)
 
-    def test_status_endpoints(self):
-        for path in ("/", "/status", "/status.json"):
-            with self.subTest(path=path), urlopen(self.base + path, timeout=3) as reply:
-                self.assertEqual(reply.status, 200)
-                self.assertEqual(
-                    reply.headers["Content-Type"], "application/json; charset=utf-8"
-                )
-                self.assertEqual(
-                    reply.headers["Cache-Control"], "max-age=60"
-                )
-                payload = json.loads(reply.read())
-                self.assertEqual(payload["members"]["n"]["status"], "operational")
+    def test_html_root(self):
+        with urlopen(self.base + "/", timeout=3) as reply:
+            self.assertEqual(reply.status, 200)
+            self.assertEqual(reply.headers["Content-Type"], "text/html; charset=utf-8")
+            self.assertEqual(reply.headers["Cache-Control"], "max-age=60")
+            body = reply.read()
+            self.assertIn(b"<!doctype html>", body)
+            self.assertIn(b'<html lang="es-AR">', body)
+            self.assertIn(b"<h2>n</h2>", body)
+            self.assertIn("Operativo".encode(), body)
+            self.assertIn("verificá".encode(), body)
+            self.assertIn(b'href="/api"', body)
+
+    def test_api_endpoint(self):
+        with urlopen(self.base + "/api", timeout=3) as reply:
+            self.assertEqual(reply.status, 200)
+            self.assertEqual(
+                reply.headers["Content-Type"], "application/json; charset=utf-8"
+            )
+            self.assertEqual(reply.headers["Cache-Control"], "max-age=60")
+            payload = json.loads(reply.read())
+            self.assertEqual(payload["members"]["n"]["status"], "operational")
 
     def test_unknown_path_is_404(self):
-        with self.assertRaises(HTTPError) as caught:
-            urlopen(self.base + "/missing", timeout=3)
-        self.assertEqual(caught.exception.code, 404)
+        for path in ("/status", "/status.json", "/missing"):
+            with self.subTest(path=path), self.assertRaises(HTTPError) as caught:
+                urlopen(self.base + path, timeout=3)
+            self.assertEqual(caught.exception.code, 404)

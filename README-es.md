@@ -30,7 +30,8 @@ se seleccionan mediante argumentos, variables de entorno o configuración JSON, 
 por defecto son todos. Cada miembro combina varias fuentes de datos e informa el
 peor estado conocido. La salida se puede usar directamente o redirigir a un
 archivo para servirla; se espera que cada consumidor sepa seleccionar los
-miembros relevantes. Véase [example.json](example.json).
+miembros relevantes. Véase [example.json](example.json). En modo demonio, TUPA
+sirve un panel HTML en `/` y JSON en `/api`.
 
 Configuración: [config.md](config.md) (en inglés).
 

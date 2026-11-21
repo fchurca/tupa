@@ -28,7 +28,8 @@ selectable via arguments, environment, or JSON configuration and default to all.
 Each member combines several datasources and reports the worst known status.
 The output can be used directly or piped to a file and served; individual
 consumers are expected to know to select the members relevant to them. See
-[example.json](example.json).
+[example.json](example.json). In daemon mode, TUPA serves an HTML dashboard at
+`/` and JSON at `/api`.
 
 Configuration: [config.md](config.md).
 

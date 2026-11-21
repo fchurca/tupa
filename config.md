@@ -125,6 +125,12 @@ Notes:
   disables caching), and `indent` is 0-8. `format` only supports `json`.
 - Invalid values exit with status 2 and an explanatory message.
 
+## HTTP endpoints
+
+In `--serve` mode, `/` renders a standalone HTML dashboard and `/api` returns
+the same status as JSON. The former `/status` and `/status.json` paths are not
+served.
+
 ## ENRE severity thresholds
 
 Severity for ENRE outages is based on the number of customers reported without

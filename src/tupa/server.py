@@ -10,12 +10,15 @@ from urllib.parse import urlsplit
 
 from .config import Config
 from .core import collect
-from .output import render
+from .output import render, render_html
 from .version import get_version
 
 log = logging.getLogger(__name__)
 
-PATHS = frozenset({"/", "/status", "/status.json"})
+CONTENT_TYPES = {
+    "/": "text/html; charset=utf-8",
+    "/api": "application/json; charset=utf-8",
+}
 
 
 class Snapshot:
@@ -24,24 +27,24 @@ class Snapshot:
         self.collector = collector
         self._lock = threading.Lock()
         self._expires = 0.0
-        self._payload: bytes | None = None
+        self._status: dict | None = None
 
-    def get(self) -> bytes:
+    def get(self) -> dict:
         with self._lock:
             now = time.monotonic()
-            if self._payload is not None and now < self._expires:
-                return self._payload
+            if self._status is not None and now < self._expires:
+                return self._status
             try:
                 status = self.collector()
             except Exception:
                 log.exception("collection failed")
-                if self._payload is not None:
+                if self._status is not None:
                     self._expires = now + min(self.ttl, 10.0)
-                    return self._payload
+                    return self._status
                 raise
-            self._payload = render(status, indent=None)
+            self._status = status
             self._expires = now + self.ttl
-            return self._payload
+            return self._status
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -49,16 +52,19 @@ class Handler(BaseHTTPRequestHandler):
     server_version = f"TUPA/{get_version()}"
 
     def do_GET(self) -> None:
-        if urlsplit(self.path).path not in PATHS:
+        path = urlsplit(self.path).path
+        content_type = CONTENT_TYPES.get(path)
+        if content_type is None:
             self.send_error(404, "Not Found")
             return
         try:
-            body = self.server.snapshot.get()
+            status = self.server.snapshot.get()
         except Exception:
             self.send_error(503, "Status unavailable")
             return
+        body = render(status, indent=None) if path == "/api" else render_html(status)
         self.send_response(200)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", f"max-age={math.ceil(self.server.snapshot.ttl)}")
         self.end_headers()
