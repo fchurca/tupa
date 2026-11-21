@@ -32,6 +32,16 @@ consumers are expected to know to select the members relevant to them. See
 
 Configuration: [config.md](config.md).
 
+### Run from source
+
+From `src/`:
+
+```sh
+cd src
+python3 -m tupa
+python3 -m unittest discover -s tests
+```
+
 ### Initial sources
 
 Work begins with the following sources:

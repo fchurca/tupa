@@ -34,6 +34,16 @@ miembros relevantes. Véase [example.json](example.json).
 
 Configuración: [config.md](config.md) (en inglés).
 
+### Ejecutar desde el código fuente
+
+Desde `src/`:
+
+```sh
+cd src
+python3 -m tupa
+python3 -m unittest discover -s tests
+```
+
 ### Fuentes iniciales
 
 El trabajo comienza con las siguientes fuentes:

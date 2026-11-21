@@ -29,9 +29,13 @@ Invalid JSON, unreadable files, and unknown top-level keys are errors.
 }
 ```
 
+Run commands from `src/`; relative paths are resolved from there. For the JSON
+above saved as `tupa.json` in the repository root:
+
 ```sh
-python3 -m tupa --config tupa.json
-python3 -m tupa --config tupa.json --serve
+cd src
+python3 -m tupa --config ../tupa.json
+python3 -m tupa --config ../tupa.json --serve
 ```
 
 The same settings can be supplied without a file:

@@ -6,7 +6,7 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     TUPA_HOST=0.0.0.0 \
     TUPA_PORT=8000
-WORKDIR /app
-COPY tupa/ ./tupa/
+WORKDIR /app/src
+COPY src/ ./
 EXPOSE 8000
 CMD ["python", "-m", "tupa", "--serve"]
