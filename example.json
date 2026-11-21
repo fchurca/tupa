@@ -1,0 +1,14 @@
+{
+  "updated": "2026-01-01T00:01:00-03:00",
+  "members": {
+    "Edenor": {
+      "updated": "2026-01-01T00:00:00-03:00",
+      "status": "operational"
+    },
+    "Edesur": {
+      "updated": "2026-01-01T00:01:00-03:00",
+      "status": "warn",
+      "comment": "Servicio interrumpido en Costurón del Camote"
+    }
+  }
+}

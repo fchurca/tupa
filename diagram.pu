@@ -1,0 +1,46 @@
+@startuml
+' Work in progress: not all sources are yet implemented.
+' Relationships read provider ---> consumer or controller ...> controlled.
+top to bottom direction
+skinparam shadowing false
+
+
+rectangle "CAMMESA\nSystem dispatch and market operator" as CAMMESA
+rectangle "SADI\nPhysical interconnected grid" as SADI
+rectangle "Transener\nHigh-voltage transmission" as TRANSENER
+
+rectangle "Edenor\nDistribution" as EDENOR
+rectangle "Edesur\nDistribution" as EDESUR
+rectangle "Edelap\nDistribution" as EDELAP
+
+rectangle "SACME\nRegional grid control and coordination" as SACME
+rectangle "CortesDeLuz.com.ar" as CDL
+
+
+' Power delivery dependencies
+SADI --> TRANSENER
+TRANSENER --> EDENOR
+TRANSENER --> EDESUR
+TRANSENER --> EDELAP
+
+' National operational coordination
+CAMMESA ..> SADI
+CAMMESA ..> TRANSENER
+CAMMESA ..> SACME
+
+' Regional operational coordination
+SACME ..> SADI
+SACME ..> TRANSENER
+SACME ..> EDENOR
+SACME ..> EDESUR
+SACME ..> EDELAP
+
+
+' Independent data aggregation
+EDENOR ..> CDL
+EDESUR ..> CDL
+EDELAP ..> CDL
+
+
+@enduml
+

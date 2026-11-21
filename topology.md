@@ -1,0 +1,41 @@
+# Topology
+
+- SADI
+  - Role: interconnection
+  - Base API: "https://cammesaweb.cammesa.com/"
+  - Documentation: "https://cammesaweb.cammesa.com/informes-y-estadisticas/"
+- CAMMESA
+  - Role: control
+  - Base API: "https://cammesaweb.cammesa.com/"
+  - Documentation: "https://cammesaweb.cammesa.com/informes-y-estadisticas/"
+  - Controlled systems: SADI, Transener, SACME
+- Transener
+  - Role: interconnection
+  - Base API: "https://cammesaweb.cammesa.com/"
+  - Documentation: "https://www.enre.gov.ar/"
+  - Upstream systems: SADI
+- SACME
+  - Role: control
+  - Base API: "https://test.sacme.com.ar/"
+  - Documentation: "https://www.sacme.com.ar/about-us/"
+  - Controlled systems: SADI, Transener, Edenor, Edesur, Edelap
+- Edenor
+  - Role: delivery
+  - Base API: "https://www.enre.gov.ar/paginacorte/tabla_cortes_edenor.html"
+  - Documentation: "https://www.enre.gov.ar/mapacortes/index.html"
+  - Upstream systems: Transener, SACME
+- Edesur
+  - Role: delivery
+  - Base API: "https://www.enre.gov.ar/paginacorte/tabla_cortes_edesur.html"
+  - Documentation: "https://www.enre.gov.ar/mapacortes/index.html"
+  - Upstream systems: Transener, SACME
+- Edelap
+  - Role: delivery
+  - Base API: "https://oceba.gba.gov.ar/"
+  - Documentation: "https://oceba.gba.gov.ar/"
+  - Upstream systems: Transener, SACME
+- CortesDeLuz.com.ar (CDL)
+  - Role: independent monitoring
+  - Base API: "https://live.cortesdeluz.com.ar/current.json"
+  - Documentation: "https://cortesdeluz.com.ar/openapi.json"
+
