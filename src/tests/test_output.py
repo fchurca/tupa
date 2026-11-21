@@ -1,6 +1,7 @@
 import unittest
 
 from tupa.output import render, render_html
+from tupa.version import get_version
 
 
 class OutputTests(unittest.TestCase):
@@ -21,11 +22,17 @@ class OutputTests(unittest.TestCase):
                 },
             }
         )
+        self.assertIn(
+            "TUPA: Telemetría Unificada de Potencia Argentina".encode(), payload
+        )
+        self.assertIn("Telemetría Unificada de Potencia Argentina".encode(), payload)
         self.assertIn(b"&lt;script&gt;", payload)
         self.assertIn(b"&lt;b&gt;&amp;co&lt;/b&gt;", payload)
         self.assertIn(b"card-warn", payload)
         self.assertIn("<b>1</b> Atención".encode(), payload)
+        self.assertIn(b"<b>1</b> Total", payload)
         self.assertIn("Actualizado".encode(), payload)
+        self.assertIn(f'class="version">v{get_version()}'.encode(), payload)
 
     def test_render_html_without_members(self):
         payload = render_html({"updated": "now", "members": {}})

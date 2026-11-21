@@ -5,6 +5,7 @@ import json
 from collections import Counter
 
 from .model import STATUSES
+from .version import get_version
 
 STATUS_ORDER = ("operational", "warn", "high", "disaster", "unknown")
 
@@ -90,6 +91,10 @@ _STYLE = """    <style>
       .counter-high { --state: var(--high); }
       .counter-disaster { --state: var(--disaster); }
       .counter-unknown { --state: var(--unknown); }
+      .counter-total {
+        --state: #ffffff;
+        color: var(--text);
+      }
       .grid {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
@@ -149,6 +154,7 @@ _STYLE = """    <style>
       .empty { grid-column: 1 / -1; color: var(--muted); }
       footer {
         display: flex;
+        flex-wrap: wrap;
         justify-content: space-between;
         gap: 16px;
         margin-top: 32px;
@@ -156,6 +162,9 @@ _STYLE = """    <style>
         border-top: 1px solid var(--border);
         color: var(--muted);
         font-size: 0.8rem;
+      }
+      .version {
+        font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
       }
       a { color: #8ba4ff; text-decoration: none; }
       a:hover { text-decoration: underline; }
@@ -189,6 +198,7 @@ def render_html(status: dict) -> bytes:
         f"{STATUS_LABELS[state]}</span>"
         for state in STATUS_ORDER
     )
+    summary += f'<span class="counter counter-total"><b>{len(members)}</b> Total</span>'
     cards = []
     for name, member in members.items():
         state = _state(member.get("status", "unknown"))
@@ -211,20 +221,21 @@ def render_html(status: dict) -> bytes:
         cards.append('      <p class="empty">No hay miembros configurados.</p>')
     card_html = "\n".join(cards)
     updated = _escape(status.get("updated", ""))
+    version = _escape(get_version())
     return (
         "<!doctype html>\n"
         '<html lang="es-AR">\n'
         "<head>\n"
         '  <meta charset="utf-8">\n'
         '  <meta name="viewport" content="width=device-width, initial-scale=1">\n'
-        "  <title>Estado TUPA</title>\n"
+        "  <title>TUPA: Telemetría Unificada de Potencia Argentina</title>\n"
         f"{_STYLE}\n"
         "</head>\n"
         "<body>\n"
         '  <div class="wrap">\n'
         '    <header class="masthead">\n'
         "      <div>\n"
-        '        <p class="eyebrow">Telemetría unificada de potencia argentina</p>\n'
+        '        <p class="eyebrow">Telemetría Unificada de Potencia Argentina</p>\n'
         "        <h1>TUPA</h1>\n"
         '        <p class="subtitle">Estado de la red eléctrica argentina de un vistazo.</p>\n'
         "      </div>\n"
@@ -238,6 +249,7 @@ def render_html(status: dict) -> bytes:
         "    </main>\n"
         "    <footer>\n"
         '      <span>Los datos son agregados; verificá las decisiones críticas con las fuentes primarias.</span>\n'
+        f'      <span class="version">v{version}</span>\n'
         '      <a href="/api">API JSON</a>\n'
         "    </footer>\n"
         "  </div>\n"

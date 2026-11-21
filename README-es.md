@@ -95,13 +95,16 @@ cualquier otro corte.
   - Docker con python:3.12-slim
   - Implementar salida JSON
   - Implementar las fuentes Edenor y Edesur
-- [ ] MVP
-  - Agregar salida HTML básica
-  - Implementar webhooks salientes o disparadores
-- [ ] Piloto
-  - Agregar salida SVG con clases
-  - Agregar las fuentes mapeadas en la topología: Transener, SADI, CAMMESA, SACME
-  - Agregar la fuente Edelap
+- [ ] Salida
+  - [X] HTML
+  - [ ] SVG
+  - [ ] Webhooks
+- [ ] Fuentes y miembros
+  - [ ] Transener
+  - [ ] SADI
+  - [ ] SACME
+  - [ ] Edelap
+  - [ ] Otras (a definir)
 - [ ] Otras jurisdicciones argentinas
 
 Las fuentes iniciales están planificadas en este orden; CDL es solo de

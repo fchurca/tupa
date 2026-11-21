@@ -10,7 +10,7 @@ from urllib.request import Request, urlopen
 
 from ..version import get_version
 
-USER_AGENT = f"TUPA/{get_version()} (+power telemetry aggregator)"
+USER_AGENT = f"TUPA/{get_version()} (+Telemetría Unificada de Potencia Argentina)"
 
 ACTIVE_KEYS = ("cortesPreventivos", "cortesServicioMedia", "cortesServicioBaja")
 PLANNED_KEYS = ("cortesProgramados", "cortesComunicados")

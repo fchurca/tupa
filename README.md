@@ -91,13 +91,16 @@ outage.
   - Docker with python:3.12-slim
   - Implement JSON output
   - Implement Edenor and Edesur sources
-- [ ] MVP
-  - Add basic HTML output
-  - Implement outgoing webhooks or triggers
-- [ ] Pilot
-  - Add classful SVG output
-  - Add sources mapped in the topology: Transener, SADI, CAMMESA, SACME
-  - Add Edelap source
+- [ ] Output
+  - [X] HTML
+  - [ ] SVG
+  - [ ] Webhooks
+- [ ] Sources and members
+  - [ ] Transener
+  - [ ] SADI
+  - [ ] SACME
+  - [ ] Edelap
+  - [ ] Other (TBD)
 - [ ] Other Argentine jurisdictions
 
 Initial sources are planned in this order; CDL is validation-only and has no
