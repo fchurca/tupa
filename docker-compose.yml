@@ -1,0 +1,18 @@
+services:
+  tupa:
+    build: .
+    image: tupa:0.1.0
+    command: ["python", "-m", "tupa", "--serve"]
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      TUPA_HOST: "0.0.0.0"
+      TUPA_PORT: "8000"
+      TUPA_TIMEOUT: "10"
+      TUPA_TTL: "60"
+    restart: unless-stopped
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true

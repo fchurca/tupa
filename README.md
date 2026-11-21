@@ -29,6 +29,8 @@ The output can be used directly or piped to a file and served; individual
 consumers are expected to know to select from the available sources those
 relevant to them. See [example.json](example.json).
 
+Configuration: [config.md](config.md).
+
 ### Initial sources
 
 Work begins with the following sources:
@@ -98,4 +100,9 @@ Copyright (c) 2026 LU1AJR. Distributed under the
 The license covers TUPA's own code and documentation; data obtained from
 upstream sources such as CAMMESA, ENRE, and OCEBA remains subject to its
 respective terms.
+
+## UGLY
+
+* **ENRE TLS:** only legacy static-RSA TLS 1.2; TUPA uses `@SECLEVEL=1` for ENRE only, with certificate checks still on.
+* **ENRE API(n't):** no API — data lives in generated `data_EDN.js` / `data_EDS.js`.
 

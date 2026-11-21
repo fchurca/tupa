@@ -32,6 +32,8 @@ para servirla; se espera que cada consumidor sepa seleccionar de las fuentes
 disponibles aquellas que le resultan relevantes. Véase
 [example.json](example.json).
 
+Configuración: [config.md](config.md) (en inglés).
+
 ### Fuentes iniciales
 
 El trabajo comienza con las siguientes fuentes:
@@ -102,3 +104,8 @@ Copyright (c) 2026 LU1AJR. Distribuido bajo la
 La licencia cubre el código y la documentación propios de TUPA; los datos
 obtenidos de fuentes externas como CAMMESA, ENRE y OCEBA siguen sujetos a sus
 respectivos términos.
+
+## FEO
+
+* **ENRE TLS:** solo TLS 1.2 con RSA estático; TUPA usa `@SECLEVEL=1` solo para ENRE, con verificación de certificado activa.
+* **ENRE API(n't):** no hay API; los datos están en `data_EDN.js` / `data_EDS.js`.
