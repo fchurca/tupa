@@ -9,6 +9,9 @@ services:
     env_file:
       - path: .env
         required: false
+    environment:
+      TZ: ${TZ:-UTC}
+      RES_OPTIONS: "${RES_OPTIONS:-timeout:1 attempts:1}"
     restart: unless-stopped
     read_only: true
     cap_drop:

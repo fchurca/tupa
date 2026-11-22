@@ -10,6 +10,8 @@ come from three layers, in decreasing priority:
 When running with Docker, environment variables are lifted from a `.env` file in
 the project directory. Copy the [`stack.env`](stack.env) template to `.env` and
 edit it; every supported variable is listed there with its default commented out.
+Compose also forwards `TZ` and sets `RES_OPTIONS=timeout:1 attempts:1` to shorten
+any resolver work done outside TUPA's bounded DNS child.
 
 Values not supplied anywhere use the defaults below. Defaults are intended to be
 sane and sufficient for normal use; configuration is optional. The JSON file is
@@ -34,6 +36,7 @@ unloadable/invalid config files log an error and cause startup failure.
   "ttl": 60,
   "format": "json",
   "indent": 2,
+  "tz": "system",
   "customers": {"edenor": 3400000, "edesur": 2700000, "edelap": 400000},
   "levels": [0.0001, 0.005, 0.05],
   "demand_levels": [0.15, 0.30, 0.50]
@@ -103,6 +106,9 @@ Default members and sources:
 Source kinds:
 
 - `enre_outages`: requires `url` and `empresa`; classifies by affected customers.
+  Every member using this kind needs a matching entry in `customers` (defaults
+  cover `edenor`, `edesur` and `edelap`); startup fails with an explanatory
+  message otherwise.
 - `cammesa_demand`: requires `region`; classifies by demand deficit against the
   lower of yesterday and the same weekday last week. `url` may override the
   CAMMESA endpoint.
@@ -121,6 +127,7 @@ Source kinds:
 | JSON indentation (0-8 spaces) | `--indent SPACES` | `TUPA_INDENT` | `indent` | `2` |
 | JSON file path | `--config PATH` | `TUPA_CONFIG` | — | none |
 | Strict config validation | `--strict` | `TUPA_STRICT` | `strict` | `false` |
+| Output timezone | `--tz NAME` | `TUPA_TZ` | `tz` | system timezone |
 | Customer baselines | `--customers NAME=COUNT,...` | `TUPA_CUSTOMERS` | `customers` | see below |
 | Severity fractions | `--levels WARN,HIGH,DISASTER` | `TUPA_LEVELS` | `levels` | `0.0001,0.005,0.05` |
 | Demand-deficit fractions | `--demand-levels WARN,HIGH,DISASTER` | `TUPA_DEMAND_LEVELS` | `demand_levels` | `0.15,0.30,0.50` |
@@ -131,20 +138,38 @@ Notes:
   they may contain letters, digits, underscores and hyphens.
 - Repeated names are de-duplicated. Unknown members, unknown sources, and
   sources assigned to the wrong member are rejected.
-- An explicit empty member selection is intentional: `selected_members: []`, an
-  empty `TUPA_MEMBERS`/`TUPA_SOURCES`, or an explicitly empty CLI selection
-  results in no members selected. TUPA logs an info message for empty env/JSON
-  selections.
+- An empty selection means "unspecified" and falls back to all available
+  entries: `selected_members: []`, empty `TUPA_MEMBERS`/`TUPA_SOURCES`, an empty
+  CLI selection, a member with an empty source list, and `sources: {}` all
+  select all members, all sources of that member, and all default sources
+  respectively. Empty values are skipped in precedence order, so an empty
+  `TUPA_MEMBERS` does not mask a non-empty `TUPA_SOURCES`.
 - `TUPA_MEMBERS` takes precedence over the legacy alias `TUPA_SOURCES`; both
   override `selected_members` from JSON.
+- Source URLs must be absolute `http://` or `https://` URLs.
 - Booleans accept `1`, `true`, `yes`, `on` and `0`, `false`, `no`, `off`
   (case-insensitive).
 - `port` is 1-65535, `timeout` is at least 0.1, `ttl` is at least 0 (zero
   disables caching), and `indent` is 0-8. `format` only supports `json`.
-- `timeout` applies per upstream source fetch. If a source does not respond in
-  time, TUPA marks it `unknown` with a Spanish comment like
-  `cammesa_edenor no respondió a tiempo después de 10 segundos`.
+- `timeout` is the overall deadline for a collection and the initial socket
+  timeout for each upstream fetch. When the deadline expires, TUPA closes the
+  active sockets of unfinished fetches, marks them `unknown` with a Spanish
+  comment like
+  `cammesa_edenor no respondió a tiempo después de 10 segundos`, and returns.
+  Fetch workers are daemons, so they cannot keep the CLI process alive. DNS
+  lookups run in short-lived child processes and are bounded by the remaining
+  collection deadline; numeric hosts bypass the child. Redirects follow urllib
+  defaults: at most 10 distinct URLs and 4 repeats of the same URL.
 - Invalid values exit with status 2 and an explanatory message.
+
+## Timezone
+
+All timestamps in the output are normalized to one timezone. By default TUPA
+uses the system timezone (`TZ` or `/etc/localtime`, falling back to the local
+offset). Set `tz` / `TUPA_TZ` / `--tz` to override it with an IANA name such as
+`America/Argentina/Buenos_Aires`, a fixed offset such as `-03:00`, or `UTC`.
+`system` and `local` explicitly select the system default. The container image
+includes `tzdata`, and Compose forwards the host `TZ` value (default `UTC`).
 
 ## HTTP endpoints
 
@@ -182,8 +207,10 @@ implemented source yet.
 
 CAMMESA's regional endpoint returns 5-minute demand in MW for today, yesterday
 and the same weekday last week. TUPA uses the lower of the two reference series
-to reduce weather-related false positives, takes the median deficit of the
-latest three comparable samples, and classifies it with `demand_levels`.
+to reduce weather-related false positives, picks the sample closest to the
+median deficit of the latest three comparable samples, and classifies that
+sample's deficit with `demand_levels`. The comment reports the same displayed
+values used for the classification.
 
 The default fractions are 15% / 30% / 50%:
 

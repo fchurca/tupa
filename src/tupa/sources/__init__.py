@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from datetime import tzinfo
 
 from ..model import Member, SourceSpec
 from ..sources.common import DEFAULT_DEMAND_THRESHOLDS, DemandThresholds, Thresholds
@@ -53,6 +54,8 @@ def fetch_source(
     timeout: float,
     thresholds: Mapping[str, Thresholds] | None = None,
     demand_thresholds: DemandThresholds | None = None,
+    tz: tzinfo | None = None,
+    deadline: float | None = None,
 ) -> Member:
     if spec.kind == "enre_outages":
         if not spec.url or not spec.empresa:
@@ -63,6 +66,8 @@ def fetch_source(
             url=spec.url,
             timeout=timeout,
             thresholds=thresholds,
+            tz=tz,
+            deadline=deadline,
         )
     if spec.kind == "cammesa_demand":
         if not spec.region:
@@ -71,5 +76,7 @@ def fetch_source(
             spec=spec,
             timeout=timeout,
             thresholds=demand_thresholds or DEFAULT_DEMAND_THRESHOLDS,
+            tz=tz,
+            deadline=deadline,
         )
     raise ValueError(f"{spec.name}: unknown source kind {spec.kind!r}")

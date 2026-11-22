@@ -98,7 +98,8 @@ are ISO 8601 / RFC 3339 strings. See the [CDDL schema](status.cddl).
 
 ENRE only publishes a time of day: TUPA pairs it with the file's HTTP
 `Last-Modified` date. Without that header, `updated` records when TUPA observed
-the data instead of assuming a date.
+the data instead of assuming a date. All timestamps are normalized to the
+configured timezone (the system timezone by default).
 
 Planned outages are outages: they use the same severity thresholds as any other
 outage.

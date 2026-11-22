@@ -4,6 +4,7 @@ import json
 import os
 import tempfile
 import unittest
+from datetime import timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -161,17 +162,85 @@ class ConfigTests(unittest.TestCase):
             config = load_config(["--member", "edenor", "edenor"])
         self.assertEqual(config.members, ("edenor",))
 
-    def test_explicit_empty_member_selection_is_intentional(self):
+    def test_empty_selections_fall_back_to_all(self):
         path = self.write_json({"selected_members": []})
-        with self.clean_env(TUPA_CONFIG=path), self.assertLogs("tupa.config", level="INFO") as logs:
+        with self.clean_env(TUPA_CONFIG=path):
             config = load_config([])
-        self.assertEqual(config.members, ())
-        self.assertTrue(any("empty selected_members" in m for m in logs.output))
+        self.assertEqual(config.members, ("edenor", "edesur"))
 
-        with self.clean_env(TUPA_MEMBERS=""), self.assertLogs("tupa.config", level="INFO") as logs:
+        with self.clean_env(TUPA_MEMBERS="", TUPA_SOURCES=""):
             config = load_config([])
-        self.assertEqual(config.members, ())
-        self.assertTrue(any("empty member selection from environment" in m for m in logs.output))
+        self.assertEqual(config.members, ("edenor", "edesur"))
+
+        with self.clean_env(TUPA_MEMBERS="   "):
+            config = load_config([])
+        self.assertEqual(config.members, ("edenor", "edesur"))
+
+        with self.clean_env(TUPA_MEMBERS="", TUPA_SOURCES="edenor"):
+            config = load_config([])
+        self.assertEqual(config.members, ("edenor",))
+
+    def test_empty_member_sources_uses_all_sources_of_that_member(self):
+        path = self.write_json({"members": {"edenor": []}})
+        with self.clean_env(TUPA_CONFIG=path):
+            config = load_config([])
+        self.assertCountEqual(
+            config.member_sources["edenor"], ("cammesa_edenor", "enre_edenor")
+        )
+
+    def test_enre_member_needs_customer_baseline(self):
+        data = {
+            "selected_members": ["transener"],
+            "members": {"transener": ["enre_custom"]},
+            "sources": {
+                "enre_custom": {
+                    "kind": "enre_outages",
+                    "member": "transener",
+                    "url": "https://example.test/data.js",
+                    "empresa": "TRANSENER",
+                }
+            },
+        }
+        path = self.write_json(data)
+        with self.clean_env(TUPA_CONFIG=path), self.quiet_error(), self.assertRaises(SystemExit) as ctx:
+            load_config([])
+        self.assertEqual(ctx.exception.code, 2)
+
+        data["customers"] = {"transener": 1000}
+        path = self.write_json(data)
+        with self.clean_env(TUPA_CONFIG=path):
+            config = load_config([])
+        self.assertEqual(config.thresholds["transener"].warn, 1)
+
+    def test_timezone_precedence_and_default(self):
+        with self.clean_env(TZ="America/Argentina/Buenos_Aires"):
+            config = load_config([])
+        self.assertEqual(str(config.tz), "America/Argentina/Buenos_Aires")
+
+        with self.clean_env(TUPA_TZ="-03:00"):
+            config = load_config([])
+        self.assertEqual(config.tz.utcoffset(None), timedelta(hours=-3))
+
+        with self.clean_env(TUPA_TZ="UTC"), patch("sys.argv", ["tupa"]):
+            config = load_config(["--tz", "+02:00"])
+        self.assertEqual(config.tz.utcoffset(None), timedelta(hours=2))
+
+        with self.clean_env(), self.quiet_error(), self.assertRaises(SystemExit) as ctx:
+            load_config(["--tz", "Mars/Olympus"])
+        self.assertEqual(ctx.exception.code, 2)
+
+    def test_string_boolean_strict_with_unknown_key(self):
+        path = self.write_json({"strict": "false", "nope": 1})
+        with self.clean_env(TUPA_CONFIG=path), self.assertLogs("tupa.config", level="WARNING"):
+            config = load_config([])
+        self.assertFalse(config.strict)
+        self.assertEqual(config.ttl, 60.0)
+
+    def test_source_url_must_be_http(self):
+        path = self.write_json({"sources": {"enre_edenor": {"url": "javascript:alert(1)"}}})
+        with self.clean_env(TUPA_CONFIG=path), self.quiet_error(), self.assertRaises(SystemExit) as ctx:
+            load_config([])
+        self.assertEqual(ctx.exception.code, 2)
 
     def test_unknown_member_exits_two(self):
         with self.clean_env(), self.quiet_error(), self.assertRaises(SystemExit) as ctx:

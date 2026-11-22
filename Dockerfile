@@ -1,6 +1,6 @@
 FROM python:3.12-slim
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates \
+    && apt-get install -y --no-install-recommends ca-certificates tzdata \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --system --home /app/src --no-create-home --shell /usr/sbin/nologin tupa \
     && mkdir -p /app/src \

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import html
 import json
+import re
 from collections import Counter
 from collections.abc import Mapping, Sequence
 
@@ -273,8 +274,8 @@ def _sources_table(specs: Sequence[SourceSpec] | None) -> str:
     rows = _source_rows(specs)
     body = "".join(
         f'          <tr><td>{_escape(name)}</td>'
-        f'<td><a href="{_escape(api)}" target="_blank" rel="noreferrer">{_escape(api or "—")}</a></td>'
-        f'<td><a href="{_escape(docs)}" target="_blank" rel="noreferrer">Documentación</a></td></tr>\n'
+        f'<td><a href="{_escape(_safe_href(api))}" target="_blank" rel="noreferrer">{_escape(api or "—")}</a></td>'
+        f'<td><a href="{_escape(_safe_href(docs))}" target="_blank" rel="noreferrer">Documentación</a></td></tr>\n'
         for name, api, docs in rows
     )
     if not body:
@@ -300,13 +301,20 @@ def _escape(value: object) -> str:
     return html.escape(str(value), quote=True)
 
 
+def _safe_href(value: object) -> str:
+    text = str(value)
+    return text if re.match(r"https?://", text, re.IGNORECASE) else ""
+
+
 def _state(value: object) -> str:
     text = str(value)
     return text if text in STATUSES else "unknown"
 
 
 def render(status: dict, *, indent: int | None = 2) -> bytes:
-    return (json.dumps(status, ensure_ascii=False, indent=indent) + "\n").encode("utf-8")
+    return (json.dumps(status, ensure_ascii=False, indent=indent) + "\n").encode(
+        "utf-8", errors="replace"
+    )
 
 
 def render_html(status: dict, sources: Sequence[SourceSpec] | None = None) -> bytes:
@@ -387,4 +395,4 @@ def render_html(status: dict, sources: Sequence[SourceSpec] | None = None) -> by
         "</body>\n"
 
         "</html>\n"
-    ).encode("utf-8")
+    ).encode("utf-8", errors="replace")

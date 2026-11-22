@@ -7,9 +7,10 @@ import os
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from datetime import tzinfo
 from pathlib import Path
 
-from .model import SourceSpec
+from .model import SourceSpec, resolve_timezone
 from .sources import DEFAULT_MEMBERS, DEFAULT_SOURCES, SOURCE_KINDS
 from .sources import cammesa
 from .sources.common import (
@@ -40,6 +41,7 @@ CONFIG_KEYS = frozenset(
         "levels",
         "demand_levels",
         "strict",
+        "tz",
     }
 )
 NAME_RE = re.compile(r"[a-z0-9][a-z0-9_-]*\Z")
@@ -50,6 +52,7 @@ FALSE_VALUES = frozenset({"0", "false", "no", "off"})
 @dataclass(frozen=True, slots=True)
 class Config:
     members: tuple[str, ...]
+    tz: tzinfo
     member_sources: Mapping[str, tuple[str, ...]]
     sources: Mapping[str, SourceSpec]
     serve: bool
@@ -193,8 +196,11 @@ def _source_defs(value: object, label: str) -> dict[str, SourceSpec]:
         if not isinstance(member, str) or not NAME_RE.fullmatch(member.lower()):
             raise ValueError(f"{label}.{name}.member is required")
         url = raw_spec.get("url", base.url if base else None)
-        if url is not None and not isinstance(url, str):
-            raise ValueError(f"{label}.{name}.url must be a string")
+        if url is not None:
+            if not isinstance(url, str):
+                raise ValueError(f"{label}.{name}.url must be a string")
+            if not re.fullmatch(r"https?://[^\s]+", url, re.IGNORECASE):
+                raise ValueError(f"{label}.{name}.url must be an http(s) URL")
         empresa = raw_spec.get("empresa", base.empresa if base else None)
         if empresa is not None:
             if not isinstance(empresa, str):
@@ -227,6 +233,7 @@ def load_config(argv: Sequence[str] | None = None) -> Config:
     parser.add_argument("--indent", default=None)
     parser.add_argument("--config", default=None)
     parser.add_argument("--strict", action="store_true", default=None)
+    parser.add_argument("--tz", default=None)
     parser.add_argument("--customers", default=None)
     parser.add_argument("--levels", default=None)
     parser.add_argument("--demand-levels", default=None)
@@ -267,11 +274,13 @@ def load_config(argv: Sequence[str] | None = None) -> Config:
         unknown = set(loaded) - CONFIG_KEYS
         if unknown:
             message = "unknown config keys: " + ", ".join(sorted(map(str, unknown)))
-            strict = (
-                _bool(strict_source, "strict")
-                if strict_source is not None
-                else bool(loaded.get("strict", False))
-            )
+            try:
+                candidate = (
+                    strict_source if strict_source is not None else loaded.get("strict", False)
+                )
+                strict = _bool(candidate, "strict")
+            except (TypeError, ValueError) as exc:
+                fail(str(exc))
             if strict:
                 log.error("%s in %r", message, config_path)
                 fail(message)
@@ -303,6 +312,11 @@ def load_config(argv: Sequence[str] | None = None) -> Config:
         raw_sources = file_config.get("sources", {})
         member_defs = {**DEFAULT_MEMBERS, **_member_defs(raw_members, "members")}
         source_defs = {**DEFAULT_SOURCES, **_source_defs(raw_sources, "sources")}
+        for member, source_names in list(member_defs.items()):
+            if not source_names:
+                member_defs[member] = tuple(
+                    name for name, spec in source_defs.items() if spec.member == member
+                )
 
         for member, source_names in member_defs.items():
             for source_name in source_names:
@@ -312,20 +326,15 @@ def load_config(argv: Sequence[str] | None = None) -> Config:
                     raise ValueError(f"source {source_name!r} does not belong to {member!r}")
 
         cli_members = args.members + (args.member_opt or [])
-        env_members = os.environ.get("TUPA_MEMBERS")
-        if env_members is None:
-            env_members = os.environ.get("TUPA_SOURCES")
-        if cli_members:
-            selected = _names(cli_members, "members")
-        elif env_members is not None:
-            selected = _names(env_members, "members")
-            if not selected:
-                log.info("empty member selection from environment; no members selected")
-        elif "selected_members" in file_config:
-            selected = _names(file_config.get("selected_members"), "selected_members")
-            if not selected:
-                log.info("empty selected_members in config; no members selected")
-        else:
+        env_members = os.environ.get("TUPA_MEMBERS") or os.environ.get("TUPA_SOURCES")
+        selected = _names(
+            cli_members
+            or env_members
+            or file_config.get("selected_members")
+            or tuple(member_defs),
+            "members",
+        )
+        if not selected:
             selected = tuple(member_defs)
         for name in selected:
             if name not in member_defs:
@@ -346,6 +355,16 @@ def load_config(argv: Sequence[str] | None = None) -> Config:
             **DEFAULT_CUSTOMERS,
             **_customers(value("customers", "TUPA_CUSTOMERS", args.customers, {}), "customers"),
         }
+        enre_members = {
+            spec.member for spec in source_defs.values() if spec.kind == "enre_outages"
+        }
+        missing_baselines = sorted(enre_members - set(customers))
+        if missing_baselines:
+            raise ValueError(
+                "members with enre_outages sources need a customer baseline: "
+                + ", ".join(missing_baselines)
+            )
+        tz = resolve_timezone(value("tz", "TUPA_TZ", args.tz, None))
         levels = _levels(value("levels", "TUPA_LEVELS", args.levels, DEFAULT_LEVELS), "levels")
         demand_levels = _levels(
             value("demand_levels", "TUPA_DEMAND_LEVELS", args.demand_levels, DEFAULT_DEMAND_LEVELS),
@@ -356,6 +375,7 @@ def load_config(argv: Sequence[str] | None = None) -> Config:
 
     return Config(
         members=selected,
+        tz=tz,
         member_sources=member_defs,
         sources=source_defs,
         serve=serve,

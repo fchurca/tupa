@@ -42,6 +42,13 @@ class CommonTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             decode_js_data('var data = {"x": "\\u00f"}')
 
+    def test_decodes_surrogate_pairs_and_replaces_lone_surrogates(self):
+        data = decode_js_data(
+            'var data = {"pair": "\\uD83D\\uDE00", "lone": "\\uD800x"}'
+        )
+        self.assertEqual(data, {"pair": "😀", "lone": "\ufffdx"})
+        self.assertEqual(data["pair"].encode("utf-8"), "😀".encode("utf-8"))
+
     def test_trailing_comma_and_missing_assignment(self):
         self.assertEqual(decode_js_data("var data = { a: 1, }"), {"a": 1})
         with self.assertRaises(ValueError):
@@ -57,8 +64,17 @@ class CommonTests(unittest.TestCase):
     def test_parse_count(self):
         self.assertEqual(parse_count("3.505.956"), 3505956)
         self.assertEqual(parse_count("1,234"), 1234)
+        self.assertEqual(parse_count(138), 138)
+        self.assertEqual(parse_count(138.5), 138)
+        self.assertIsNone(parse_count(-1))
+        self.assertIsNone(parse_count(float("nan")))
+        self.assertIsNone(parse_count(True))
         self.assertIsNone(parse_count("N/A"))
         self.assertIsNone(parse_count(None))
+
+    def test_missing_threshold_baseline_is_reported(self):
+        with self.assertRaisesRegex(ValueError, "no thresholds configured"):
+            thresholds_for("unknown_member", {})
 
     def test_thresholds_per_source(self):
         expected = {

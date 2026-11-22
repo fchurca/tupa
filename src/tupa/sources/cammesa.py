@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import statistics
-from collections.abc import Mapping, Sequence
-from datetime import datetime
+from collections.abc import Sequence
+from datetime import datetime, tzinfo
 
-from ..model import AR_TZ, Member, SourceSpec, make_member
+from ..model import Member, SourceSpec, make_member, system_timezone
 from .common import DEFAULT_DEMAND_THRESHOLDS, DemandThresholds, fetch_text
 
 BASE_URL = (
@@ -32,14 +33,15 @@ def _number(value: object) -> float | None:
     return number
 
 
-def _timestamp(value: object) -> str:
+def _timestamp(value: object, tz: tzinfo) -> str:
+    text = re.sub(r"([+-]\d{2})(\d{2})\Z", r"\1:\2", str(value))
     try:
-        parsed = datetime.fromisoformat(str(value).replace("-0300", "-03:00"))
+        parsed = datetime.fromisoformat(text)
     except ValueError:
         raise ValueError(f"CAMMESA fecha no válida: {value!r}") from None
     if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=AR_TZ)
-    return parsed.astimezone(AR_TZ).isoformat(timespec="seconds")
+        parsed = parsed.replace(tzinfo=tz)
+    return parsed.astimezone(tz).isoformat(timespec="seconds")
 
 
 def _rows(payload: object) -> Sequence[tuple[str, float, float, float]]:
@@ -65,18 +67,28 @@ def fetch_demand(
     spec: SourceSpec,
     timeout: float,
     thresholds: DemandThresholds | None = None,
+    tz: tzinfo | None = None,
+    deadline: float | None = None,
 ) -> Member:
+    zone = tz if tz is not None else system_timezone()
     url = spec.url or url_for(spec.region or 0)
-    payload = json.loads(fetch_text(url, timeout=timeout))
+    payload = json.loads(fetch_text(url, timeout=timeout, deadline=deadline))
     rows = _rows(payload)
     if not rows:
-        return make_member("unknown", comment="CAMMESA sin datos comparables de demanda")
+        return make_member(
+            "unknown", comment="CAMMESA sin datos comparables de demanda", tz=zone
+        )
     window = rows[-WINDOW:]
-    fecha, hoy, reference, _ = window[-1]
-    deficit = statistics.median(row[3] for row in window)
+    median = statistics.median(row[3] for row in window)
+    fecha, hoy, reference, deficit = min(
+        reversed(window), key=lambda row: abs(row[3] - median)
+    )
     selected = DEFAULT_DEMAND_THRESHOLDS if thresholds is None else thresholds
+    updated = _timestamp(fecha, zone)
     comment = (
         f"{hoy:.0f} MW; {deficit:.1%} bajo referencia {reference:.0f} MW; "
-        f"CAMMESA región {spec.region or '?'} {fecha}"
+        f"CAMMESA región {spec.region or '?'} {updated}"
     )
-    return make_member(selected.classify(deficit), comment=comment, updated=_timestamp(fecha))
+    return make_member(
+        selected.classify(deficit), comment=comment, updated=updated, tz=zone
+    )

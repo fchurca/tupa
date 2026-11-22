@@ -1,17 +1,27 @@
 import io
 import json
+import multiprocessing
+import socket
 import ssl
+import threading
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from tupa.model import SourceSpec
+from tupa.model import AR_TZ, SourceSpec
 from tupa.sources import DEFAULT_SOURCES, cammesa
 from tupa.sources.common import (
     USER_AGENT,
     DemandThresholds,
+    _dns_local,
+    active_sockets,
+    cancel_thread,
+    clear_cancellation,
+    dns_deadline,
     fetch_text,
     legacy_tls_context,
+    register_socket,
     thresholds_from,
 )
 from tupa.sources.enre import fetch_enre
@@ -42,6 +52,7 @@ class SourceTests(unittest.TestCase):
                 url=spec.url,
                 timeout=4.0,
                 thresholds=thresholds,
+                tz=AR_TZ,
             )
         return member, mock
 
@@ -86,6 +97,48 @@ class SourceTests(unittest.TestCase):
             fetch_text("https://example.test/data", timeout=2.0)
         self.assertIsNone(mock.call_args.kwargs["context"])
 
+    def test_dns_lookup_is_bounded_by_deadline(self):
+        before = len(multiprocessing.active_children())
+        start = time.monotonic()
+        with self.assertRaises(socket.gaierror) as caught:
+            with dns_deadline(time.monotonic() + 0.001):
+                socket.getaddrinfo("dns-timeout.invalid", 80)
+        self.assertLess(time.monotonic() - start, 2.0)
+        self.assertIn("timed out", str(caught.exception))
+        self.assertEqual(len(multiprocessing.active_children()), before)
+
+    def test_dns_bypasses_child_for_numeric_hosts_and_no_deadline(self):
+        with patch(
+            "tupa.sources.common.multiprocessing.get_context",
+            side_effect=AssertionError("child spawned"),
+        ):
+            numeric = socket.getaddrinfo("127.0.0.1", 80, type=socket.SOCK_STREAM)
+            plain = socket.getaddrinfo("localhost", 80, type=socket.SOCK_STREAM)
+        self.assertTrue(numeric)
+        self.assertTrue(plain)
+
+    def test_dns_deadline_restores_previous_value(self):
+        outer = time.monotonic() + 10
+        with dns_deadline(outer):
+            with dns_deadline(outer + 1):
+                self.assertEqual(_dns_local.deadline, outer + 1)
+            self.assertEqual(_dns_local.deadline, outer)
+        self.assertIsNone(getattr(_dns_local, "deadline", None))
+
+    def test_cancel_thread_closes_registered_socket(self):
+        left, right = socket.socketpair()
+        try:
+            register_socket(left)
+            self.assertEqual(active_sockets(), 1)
+            self.assertTrue(cancel_thread(threading.get_ident()))
+            self.assertEqual(active_sockets(), 0)
+            with self.assertRaises(OSError):
+                left.send(b"x")
+        finally:
+            clear_cancellation()
+            left.close()
+            right.close()
+
     def test_fetch_rejects_oversized_response(self):
         oversized = b"x" * 1_000_001
         with patch("tupa.sources.common.urlopen", return_value=FakeResponse(oversized)):
@@ -121,7 +174,7 @@ class SourceTests(unittest.TestCase):
         with patch(
             "tupa.sources.common.urlopen", return_value=response("cammesa_high.json")
         ) as mock:
-            member = cammesa.fetch_demand(spec=spec, timeout=4.0)
+            member = cammesa.fetch_demand(spec=spec, timeout=4.0, tz=AR_TZ)
         self.assertEqual(member.status, "high")
         self.assertIn("700 MW", member.comment)
         self.assertIn("30.0% bajo referencia", member.comment)
@@ -135,7 +188,7 @@ class SourceTests(unittest.TestCase):
         with patch(
             "tupa.sources.common.urlopen", return_value=response("cammesa_high.json")
         ):
-            member = cammesa.fetch_demand(spec=spec, timeout=1.0, thresholds=thresholds)
+            member = cammesa.fetch_demand(spec=spec, timeout=1.0, thresholds=thresholds, tz=AR_TZ)
         self.assertEqual(member.status, "warn")
 
     def test_cammesa_without_comparable_data_is_unknown(self):
@@ -143,9 +196,36 @@ class SourceTests(unittest.TestCase):
         with patch(
             "tupa.sources.common.urlopen", return_value=response("cammesa_no_data.json")
         ):
-            member = cammesa.fetch_demand(spec=spec, timeout=1.0)
+            member = cammesa.fetch_demand(spec=spec, timeout=1.0, tz=AR_TZ)
         self.assertEqual(member.status, "unknown")
         self.assertIn("sin datos comparables", member.comment)
+
+    def test_cammesa_comment_matches_displayed_values(self):
+        spec = SourceSpec("cammesa_edenor", "cammesa_demand", "edenor", region=1077)
+        payload = [
+            {
+                "fecha": "2026-11-21T13:50:00.000-0300",
+                "demHoy": 700,
+                "demAyer": 1000,
+                "demSemanaAnt": 1000,
+            },
+            {
+                "fecha": "2026-11-21T13:55:00.000-0300",
+                "demHoy": 700,
+                "demAyer": 1000,
+                "demSemanaAnt": 1000,
+            },
+            {
+                "fecha": "2026-11-21T14:00:00.000-0300",
+                "demHoy": 1000,
+                "demAyer": 1000,
+                "demSemanaAnt": 1000,
+            },
+        ]
+        with patch("tupa.sources.cammesa.fetch_text", return_value=json.dumps(payload)):
+            member = cammesa.fetch_demand(spec=spec, timeout=1.0, tz=AR_TZ)
+        self.assertIn("700 MW; 30.0% bajo referencia 1000 MW", member.comment)
+        self.assertEqual(member.updated, "2026-11-21T13:55:00-03:00")
 
     def test_cammesa_invalid_fecha_is_rejected(self):
         spec = SourceSpec("cammesa_edenor", "cammesa_demand", "edenor", region=1077)
@@ -161,7 +241,7 @@ class SourceTests(unittest.TestCase):
             patch("tupa.sources.cammesa.fetch_text", return_value=json.dumps(payload)),
             self.assertRaisesRegex(ValueError, "fecha no válida"),
         ):
-            cammesa.fetch_demand(spec=spec, timeout=1.0)
+            cammesa.fetch_demand(spec=spec, timeout=1.0, tz=AR_TZ)
 
     def test_cammesa_naive_fecha_uses_local_offset(self):
         spec = SourceSpec("cammesa_edenor", "cammesa_demand", "edenor", region=1077)
@@ -174,5 +254,5 @@ class SourceTests(unittest.TestCase):
             }
         ]
         with patch("tupa.sources.cammesa.fetch_text", return_value=json.dumps(payload)):
-            member = cammesa.fetch_demand(spec=spec, timeout=1.0)
+            member = cammesa.fetch_demand(spec=spec, timeout=1.0, tz=AR_TZ)
         self.assertEqual(member.updated, "2026-11-21T14:00:00-03:00")

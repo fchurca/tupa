@@ -1,9 +1,30 @@
+import threading
+import time
 import unittest
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import tupa.core as core
-from tupa.model import SourceSpec, make_member
+from tupa.model import AR_TZ, SourceSpec, make_member
+from tupa.sources.common import active_sockets
+
+
+class TrickleHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-Length", "20")
+        self.end_headers()
+        try:
+            for _ in range(20):
+                self.wfile.write(b"x")
+                self.wfile.flush()
+                time.sleep(0.05)
+        except OSError:
+            return
+
+    def log_message(self, *args):
+        return
 
 
 def spec(name, member):
@@ -29,6 +50,7 @@ class CoreTests(unittest.TestCase):
                 timeout=3.5,
                 sources=sources,
                 member_sources=members,
+                tz=AR_TZ,
             )
 
         self.assertRegex(
@@ -68,13 +90,74 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(calls, ["two"])
         self.assertEqual(list(status["members"]), ["two"])
 
-    def test_explicit_empty_members_means_no_members(self):
-        sources = {"one": spec("one", "one")}
-        members = {"one": ("one",)}
-        with patch("tupa.core.fetch_source") as fetch:
+    def test_unknown_source_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "uses unknown source"):
+            core.collect(
+                None,
+                timeout=1.0,
+                sources={},
+                member_sources={"edenor": ("missing",)},
+            )
+
+    def test_empty_members_means_all_members(self):
+        sources = {"one": spec("one", "one"), "two": spec("two", "two")}
+        members = {"one": ("one",), "two": ("two",)}
+        with patch("tupa.core.fetch_source", return_value=make_member("operational")) as fetch:
             status = core.collect([], timeout=1.0, sources=sources, member_sources=members)
-        fetch.assert_not_called()
-        self.assertEqual(status["members"], {})
+        self.assertEqual(fetch.call_count, 2)
+        self.assertEqual(list(status["members"]), ["one", "two"])
+
+    def test_timeout_leaves_daemon_workers_and_marks_unknown(self):
+        release = threading.Event()
+
+        def blocked(spec, **kwargs):
+            release.wait(5)
+            return make_member("operational")
+
+        sources = {"slow": spec("slow", "edenor")}
+        members = {"edenor": ("slow",)}
+        start = time.monotonic()
+        try:
+            with patch("tupa.core.fetch_source", side_effect=blocked):
+                status = core.collect(None, timeout=0.1, sources=sources, member_sources=members)
+        finally:
+            release.set()
+        self.assertLess(time.monotonic() - start, 2.0)
+        self.assertEqual(status["members"]["edenor"]["status"], "unknown")
+        self.assertIn("no respondió", status["members"]["edenor"]["comment"])
+        self.assertTrue(
+            all(thread.daemon for thread in threading.enumerate() if thread.name.startswith("tupa-fetch-"))
+        )
+
+    def test_collect_cancels_open_socket_on_deadline(self):
+        server = ThreadingHTTPServer(("127.0.0.1", 0), TrickleHandler)
+        server.daemon_threads = True
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            source = SourceSpec(
+                "slow",
+                "enre_outages",
+                "edenor",
+                url=f"http://127.0.0.1:{server.server_port}/",
+                empresa="TEST",
+            )
+            start = time.monotonic()
+            status = core.collect(
+                None,
+                timeout=0.3,
+                sources={"slow": source},
+                member_sources={"edenor": ("slow",)},
+            )
+            elapsed = time.monotonic() - start
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+        self.assertLess(elapsed, 2.0)
+        self.assertEqual(status["members"]["edenor"]["status"], "unknown")
+        self.assertIn("no respondió", status["members"]["edenor"]["comment"])
+        self.assertEqual(active_sockets(), 0)
 
     def test_collect_forwards_thresholds(self):
         received = []
@@ -116,7 +199,9 @@ class CoreTests(unittest.TestCase):
             return enre(spec, **kwargs) if spec.kind == "enre_outages" else cammesa(spec, **kwargs)
 
         with patch("tupa.core.fetch_source", side_effect=fake):
-            status = core.collect(None, timeout=1.0, sources=sources, member_sources=members)
+            status = core.collect(
+                None, timeout=1.0, sources=sources, member_sources=members, tz=AR_TZ
+            )
 
         member = status["members"]["edenor"]
         self.assertEqual(member["status"], "disaster")
@@ -152,6 +237,7 @@ class CoreTests(unittest.TestCase):
     def test_collect_from_config_forwards_settings(self):
         config = SimpleNamespace(
             members=("edenor",),
+            tz=AR_TZ,
             timeout=7.0,
             thresholds={"edenor": object()},
             demand_thresholds=object(),
@@ -163,6 +249,7 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(result, {"ok": True})
         collect.assert_called_once_with(
             ("edenor",),
+            tz=AR_TZ,
             timeout=7.0,
             thresholds=config.thresholds,
             demand_thresholds=config.demand_thresholds,

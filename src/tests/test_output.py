@@ -70,8 +70,22 @@ class OutputTests(unittest.TestCase):
         self.assertIn("No hay miembros configurados.".encode(), payload)
         self.assertIn("Sin fuentes activas.".encode(), payload)
 
+    def test_render_html_rejects_unsafe_source_urls(self):
+        sources = [
+            SourceSpec(
+                "evil", "enre_outages", "edenor", url="javascript:alert(1)", empresa="EDENOR"
+            )
+        ]
+        payload = render_html({"updated": "now", "members": {}}, sources=sources)
+        self.assertIn(b'href=""', payload)
+        self.assertNotIn(b'href="javascript:', payload)
+
 
 class VersionTests(unittest.TestCase):
+    def setUp(self):
+        get_version.cache_clear()
+        self.addCleanup(get_version.cache_clear)
+
     def test_uses_installed_metadata(self):
         with patch("tupa.version.version", return_value="9.9.9"):
             self.assertEqual(get_version(), "9.9.9")
