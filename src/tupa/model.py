@@ -118,8 +118,9 @@ def aggregate(
     else:
         status = "unknown"
     comments = [f"{name}: {member.comment or member.status}" for name, member in results]
+    for_latest = known if known else [member for _, member in results]
     latest = max(
-        (_normalize_updated(member.updated, zone) for _, member in results),
+        (_normalize_updated(member.updated, zone) for member in for_latest),
         default=None,
     )
     return make_member(

@@ -99,3 +99,21 @@ class ModelTests(unittest.TestCase):
         ]
         member = aggregate(results, tz=AR_TZ)
         self.assertEqual(member.updated, "2026-11-21T20:00:00-03:00")
+
+    def test_aggregate_ignores_failed_source_timestamp(self):
+        results = [
+            (
+                "cammesa",
+                make_member("warn", updated="2026-11-22T13:55:00-03:00"),
+            ),
+            (
+                "enre",
+                make_member(
+                    "unknown",
+                    comment="source unavailable: timeout",
+                    updated="2026-11-22T14:05:00-03:00",
+                ),
+            ),
+        ]
+        member = aggregate(results, tz=AR_TZ)
+        self.assertEqual(member.updated, "2026-11-22T13:55:00-03:00")

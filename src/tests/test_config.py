@@ -70,6 +70,12 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.host, "env.example")
         self.assertTrue(config.serve)
 
+    def test_serve_from_json(self):
+        path = self.write_json({"serve": True})
+        with self.clean_env(TUPA_CONFIG=path):
+            config = load_config([])
+        self.assertTrue(config.serve)
+
     def test_once_forces_serve_false(self):
         path = self.write_json({"serve": True})
         with self.clean_env(TUPA_CONFIG=path, TUPA_SERVE="true"):
@@ -235,6 +241,11 @@ class ConfigTests(unittest.TestCase):
         with self.clean_env(TUPA_TZ="UTC"):
             config = load_config(["--tz", "+02:00"])
         self.assertEqual(config.tz.utcoffset(None), timedelta(hours=2))
+
+        path = self.write_json({"tz": "UTC"})
+        with self.clean_env(TUPA_CONFIG=path):
+            config = load_config([])
+        self.assertEqual(str(config.tz), "UTC")
 
         with self.clean_env(), self.quiet_error(), self.assertRaises(SystemExit) as ctx:
             load_config(["--tz", "Mars/Olympus"])

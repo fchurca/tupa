@@ -53,7 +53,7 @@ class Snapshot:
                 with self._lock:
                     if self._status is None:
                         raise
-                    self._expires = now + min(self.ttl, 10.0)
+                    self._expires = time.monotonic() + min(self.ttl, 10.0)
                     return self._status
             with self._lock:
                 self._status = status

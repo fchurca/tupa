@@ -55,6 +55,37 @@ class SnapshotTests(unittest.TestCase):
         with patch("tupa.server.log"), self.assertRaises(RuntimeError):
             Snapshot(60.0, collector).get()
 
+    def test_zero_ttl_disables_caching(self):
+        values = iter([{"updated": "first"}, {"updated": "second"}])
+        snapshot = Snapshot(0.0, lambda: next(values))
+        self.assertEqual(snapshot.get()["updated"], "first")
+        self.assertEqual(snapshot.get()["updated"], "second")
+
+    def test_stale_window_starts_after_failed_collection(self):
+        values = iter([status("operational"), RuntimeError("down"), status("warn")])
+        clock = [0.0]
+
+        def collector():
+            value = next(values)
+            if isinstance(value, Exception):
+                clock[0] += 8.0
+                raise value
+            return value
+
+        snapshot = Snapshot(60.0, collector)
+        with (
+            patch("tupa.server.time.monotonic", side_effect=lambda: clock[0]),
+            patch("tupa.server.log"),
+        ):
+            self.assertEqual(snapshot.get()["members"]["n"]["status"], "operational")
+            clock[0] = 61.0
+            self.assertEqual(snapshot.get()["members"]["n"]["status"], "operational")
+            self.assertEqual(snapshot._expires, 79.0)
+            clock[0] = 78.0
+            self.assertEqual(snapshot.get()["members"]["n"]["status"], "operational")
+            clock[0] = 80.0
+            self.assertEqual(snapshot.get()["members"]["n"]["status"], "warn")
+
 
 class HTTPTests(unittest.TestCase):
     def setUp(self):

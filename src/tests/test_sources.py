@@ -10,7 +10,10 @@ from datetime import timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
+from urllib.error import HTTPError, URLError
+from urllib.request import Request
 
+import tupa.sources.common as common
 from tupa.model import AR_TZ, SourceSpec
 from tupa.sources import DEFAULT_SOURCES, cammesa
 from tupa.sources.common import (
@@ -130,8 +133,17 @@ class SourceTests(unittest.TestCase):
         with dns_deadline(outer):
             with dns_deadline(outer + 1):
                 self.assertEqual(_dns_local.deadline, outer + 1)
+                self.assertEqual(common._fetch_local.deadline, outer + 1)
             self.assertEqual(_dns_local.deadline, outer)
         self.assertIsNone(getattr(_dns_local, "deadline", None))
+        self.assertIsNone(getattr(common._fetch_local, "deadline", None))
+
+    def test_dns_lookup_success_returns_results(self):
+        before = len(multiprocessing.active_children())
+        with dns_deadline(time.monotonic() + 2):
+            infos = socket.getaddrinfo("localhost", 80, type=socket.SOCK_STREAM)
+        self.assertTrue(infos)
+        self.assertEqual(len(multiprocessing.active_children()), before)
 
     def test_cancel_fetch_closes_registered_socket(self):
         left, right = socket.socketpair()
@@ -370,3 +382,113 @@ class SourceTests(unittest.TestCase):
         self.assertTrue(_is_private_target("10.0.0.1"))
         self.assertTrue(_is_private_target("169.254.169.254"))
         self.assertFalse(_is_private_target("8.8.8.8"))
+
+    def test_special_address_ranges_are_restricted(self):
+        for host in ("100.64.0.1", "100.100.100.200", "224.0.0.1", "0.0.0.0"):
+            with self.subTest(host=host):
+                self.assertTrue(_is_private_target(host))
+        with patch(
+            "tupa.sources.common.socket.getaddrinfo",
+            side_effect=socket.gaierror("resolver down"),
+        ):
+            self.assertIsNone(common._target_privacy("unresolvable.example"))
+            self.assertTrue(_is_private_target("unresolvable.example"))
+
+    def test_connect_rejects_restricted_addresses(self):
+        previous = getattr(common._fetch_local, "allow_private", False)
+        try:
+            common._fetch_local.allow_private = False
+            with self.assertRaises(socket.gaierror) as caught:
+                common._connect_with_deadline(("127.0.0.1", 80), 1.0, None)
+            self.assertIn("not allowed", str(caught.exception))
+        finally:
+            common._fetch_local.allow_private = previous
+
+    def test_check_cancelled_closes_socket(self):
+        token = object()
+        begin_fetch(token)
+        cancel_fetch(token)
+        set_fetch_token(token)
+        left, right = socket.socketpair()
+        try:
+            with self.assertRaises(FetchTimeout):
+                common._check_cancelled(left)
+            with self.assertRaises(OSError):
+                left.send(b"x")
+        finally:
+            clear_fetch_token()
+            clear_cancellation(token)
+            left.close()
+            right.close()
+
+    def test_redirect_handler_fails_closed(self):
+        request = Request("https://public.example/")
+        handler = common._RestrictedRedirectHandler(allow_private=False)
+        with patch("tupa.sources.common._target_privacy", return_value=True):
+            with self.assertRaisesRegex(HTTPError, "unsafe redirect target"):
+                handler.redirect_request(
+                    request, io.BytesIO(b""), 302, "Found", {}, "http://127.0.0.1/"
+                )
+        with patch("tupa.sources.common._target_privacy", return_value=None):
+            with self.assertRaisesRegex(HTTPError, "unsafe redirect target"):
+                handler.redirect_request(
+                    request, io.BytesIO(b""), 302, "Found", {}, "http://127.0.0.1/"
+                )
+        permissive = common._RestrictedRedirectHandler(allow_private=True)
+        with patch("tupa.sources.common._target_privacy", return_value=True):
+            redirected = permissive.redirect_request(
+                request, io.BytesIO(b""), 302, "Found", {}, "http://127.0.0.1/"
+            )
+        self.assertEqual(redirected.full_url, "http://127.0.0.1/")
+
+    def test_non_http_schemes_are_not_opened(self):
+        for url in ("file:///etc/passwd", "ftp://example.test/file"):
+            with self.subTest(url=url), self.assertRaises(URLError):
+                fetch_text(url, timeout=1.0)
+
+    def test_fetch_unwraps_timeout_from_urlerror(self):
+        with patch(
+            "tupa.sources.common.urlopen",
+            side_effect=URLError(FetchTimeout("cancelled during connect")),
+        ):
+            with self.assertRaises(FetchTimeout):
+                fetch_text(
+                    "https://example.test/", timeout=1.0, deadline=time.monotonic() + 1
+                )
+
+    def test_fetch_timeout_when_body_stalls(self):
+        class NoBody(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.send_header("Content-Length", "20")
+                self.end_headers()
+                time.sleep(1)
+
+            def log_message(self, *args):
+                return
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), NoBody)
+        server.daemon_threads = True
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            start = time.monotonic()
+            with self.assertRaises(FetchTimeout):
+                fetch_text(
+                    f"http://127.0.0.1:{server.server_port}/",
+                    timeout=5.0,
+                    deadline=start + 0.2,
+                )
+            self.assertLess(time.monotonic() - start, 2.0)
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+
+    def test_dns_child_send_failure_is_silent(self):
+        receiver, sender = multiprocessing.get_context("spawn").Pipe(duplex=False)
+        receiver.close()
+        try:
+            common._send_result(sender, ("ok", []))
+        finally:
+            sender.close()

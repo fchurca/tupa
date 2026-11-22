@@ -1,10 +1,13 @@
+import base64
+import hashlib
+import re
 import unittest
 from importlib.metadata import PackageNotFoundError
 from pathlib import Path
 from unittest.mock import patch
 
 from tupa.model import SourceSpec
-from tupa.output import render, render_html
+from tupa.output import _SCRIPT_HASH, render, render_html
 from tupa.version import get_version
 
 
@@ -80,6 +83,15 @@ class OutputTests(unittest.TestCase):
         payload = render_html({"updated": "now", "members": {}}, sources=sources)
         self.assertIn(b'href=""', payload)
         self.assertNotIn(b'href="javascript:', payload)
+
+    def test_render_html_csp_hash_matches_script(self):
+        payload = render_html({"updated": "now", "members": {}}).decode("utf-8")
+        script = re.search(r"<script>(.*?)</script>", payload, re.S)
+        self.assertIsNotNone(script)
+        digest = hashlib.sha256(script.group(1).encode("utf-8")).digest()
+        expected = "sha256-" + base64.b64encode(digest).decode("ascii")
+        self.assertEqual(expected, _SCRIPT_HASH)
+        self.assertIn(f"script-src '{expected}'".encode(), payload.encode())
 
 
 class VersionTests(unittest.TestCase):

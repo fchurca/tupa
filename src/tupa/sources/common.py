@@ -14,14 +14,18 @@ from collections.abc import Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import lru_cache
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import (
+    HTTPDefaultErrorHandler,
+    HTTPErrorProcessor,
     HTTPHandler,
     HTTPSHandler,
     HTTPRedirectHandler,
+    OpenerDirector,
+    ProxyHandler,
     Request,
-    build_opener,
+    UnknownHandler,
 )
 
 from ..version import get_version
@@ -95,20 +99,6 @@ def register_socket(sock: socket.socket, token: object | None = None) -> None:
             socks.append(sock)
 
 
-def unregister_socket(sock: socket.socket, token: object | None = None) -> None:
-    key = token if token is not None else _current_token()
-    with _registry_lock:
-        socks = _sockets.get(key)
-        if socks is None:
-            return
-        for index, existing in enumerate(socks):
-            if existing is sock:
-                socks.pop(index)
-                break
-        if not socks:
-            _sockets.pop(key, None)
-
-
 def unregister_fetch(token: object) -> None:
     with _registry_lock:
         _sockets.pop(token, None)
@@ -144,6 +134,20 @@ def is_cancelled(token: object | None = None) -> bool:
         return key in _cancelled
 
 
+def _check_cancelled(sock: socket.socket) -> None:
+    if not is_cancelled():
+        return
+    try:
+        sock.shutdown(socket.SHUT_RDWR)
+    except OSError:
+        pass
+    try:
+        sock.close()
+    except OSError:
+        pass
+    raise FetchTimeout("fetch cancelled")
+
+
 def active_sockets() -> int:
     with _registry_lock:
         return sum(len(socks) for socks in _sockets.values())
@@ -167,16 +171,23 @@ def _is_numeric_host(host: object) -> bool:
     return True
 
 
+def _send_result(conn, payload) -> None:
+    try:
+        conn.send(payload)
+    except OSError:
+        pass
+
+
 def _resolve_child(conn, host, port, family, socktype, proto, flags) -> None:
     try:
         results = _original_getaddrinfo(host, port, family, socktype, proto, flags)
-        conn.send(("ok", results))
+        _send_result(conn, ("ok", results))
     except socket.gaierror as exc:
         code = exc.args[0] if exc.args else socket.EAI_AGAIN
         message = exc.args[1] if len(exc.args) > 1 else str(exc)
-        conn.send(("error", code, message))
+        _send_result(conn, ("error", code, message))
     except Exception as exc:
-        conn.send(("error", socket.EAI_FAIL, f"{type(exc).__name__}: {exc}"))
+        _send_result(conn, ("error", socket.EAI_FAIL, f"{type(exc).__name__}: {exc}"))
     finally:
         conn.close()
 
@@ -246,7 +257,13 @@ def _connect_with_deadline(address, timeout: float | None, source_address, **kwa
     host, port = address
     infos = socket.getaddrinfo(host, port, 0, socket.SOCK_STREAM)
     last_error: OSError | None = None
+    allowed = False
     for family, socktype, proto, _, sockaddr in infos:
+        if not getattr(_fetch_local, "allow_private", False) and _restricted_ip(
+            sockaddr[0]
+        ):
+            continue
+        allowed = True
         sock: socket.socket | None = None
         try:
             sock = socket.socket(family, socktype, proto)
@@ -261,34 +278,34 @@ def _connect_with_deadline(address, timeout: float | None, source_address, **kwa
                 sock.close()
     if last_error is not None:
         raise last_error
+    if not allowed:
+        raise socket.gaierror(
+            getattr(socket, "EAI_ACCES", socket.EAI_FAIL), "target address not allowed"
+        )
     raise socket.gaierror(socket.EAI_AGAIN, "no address for host")
 
 
 class _DeadlineHTTPConnection(http.client.HTTPConnection):
     def _create_connection(self, address, timeout=None, source_address=None, **kwargs):
-        deadline = getattr(_fetch_local, "deadline", None)
-        if deadline is None:
-            sock = socket.create_connection(address, timeout, source_address, **kwargs)
-        else:
-            sock = _connect_with_deadline(address, timeout, source_address, **kwargs)
+        sock = _connect_with_deadline(address, timeout, source_address, **kwargs)
         register_socket(sock)
+        deadline = getattr(_fetch_local, "deadline", None)
         if deadline is not None:
             sock.settimeout(_remaining(deadline))
         _fetch_local.socket = sock
+        _check_cancelled(sock)
         return sock
 
 
 class _DeadlineHTTPSConnection(http.client.HTTPSConnection):
     def _create_connection(self, address, timeout=None, source_address=None, **kwargs):
-        deadline = getattr(_fetch_local, "deadline", None)
-        if deadline is None:
-            sock = socket.create_connection(address, timeout, source_address, **kwargs)
-        else:
-            sock = _connect_with_deadline(address, timeout, source_address, **kwargs)
+        sock = _connect_with_deadline(address, timeout, source_address, **kwargs)
         register_socket(sock)
+        deadline = getattr(_fetch_local, "deadline", None)
         if deadline is not None:
             sock.settimeout(_remaining(deadline))
         _fetch_local.socket = sock
+        _check_cancelled(sock)
         return sock
 
     def connect(self) -> None:
@@ -298,6 +315,7 @@ class _DeadlineHTTPSConnection(http.client.HTTPSConnection):
         if deadline is not None:
             self.sock.settimeout(_remaining(deadline))
         _fetch_local.socket = self.sock
+        _check_cancelled(self.sock)
 
 
 class _DeadlineHTTPHandler(HTTPHandler):
@@ -314,29 +332,42 @@ class _DeadlineHTTPSHandler(HTTPSHandler):
         return self.do_open(_DeadlineHTTPSConnection, req, context=self.context)
 
 
-def _is_private_target(host: str) -> bool:
+_CGNAT_NETWORK = ipaddress.ip_network("100.64.0.0/10")
+
+
+def _restricted_ip(address: object) -> bool:
+    try:
+        parsed = ipaddress.ip_address(address)
+    except (TypeError, ValueError):
+        return True
+    return bool(
+        parsed.is_private
+        or parsed.is_loopback
+        or parsed.is_link_local
+        or parsed.is_reserved
+        or parsed.is_multicast
+        or parsed.is_unspecified
+        or parsed in _CGNAT_NETWORK
+    )
+
+
+def _target_privacy(host: str) -> bool | None:
     try:
         address = ipaddress.ip_address(host)
     except ValueError:
         try:
             infos = socket.getaddrinfo(host, None)
         except OSError:
-            return True
+            return None
         if not infos:
-            return True
-        return any(
-            ipaddress.ip_address(info[4][0]).is_private
-            or ipaddress.ip_address(info[4][0]).is_loopback
-            or ipaddress.ip_address(info[4][0]).is_link_local
-            or ipaddress.ip_address(info[4][0]).is_reserved
-            for info in infos
-        )
-    return (
-        address.is_private
-        or address.is_loopback
-        or address.is_link_local
-        or address.is_reserved
-    )
+            return None
+        return any(_restricted_ip(info[4][0]) for info in infos)
+    return _restricted_ip(address)
+
+
+def _is_private_target(host: str) -> bool:
+    result = _target_privacy(host)
+    return True if result is None else result
 
 
 class _RestrictedRedirectHandler(HTTPRedirectHandler):
@@ -347,7 +378,7 @@ class _RestrictedRedirectHandler(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         target = urlsplit(newurl)
         if target.scheme.lower() not in ("http", "https") or (
-            not self.allow_private and _is_private_target(target.hostname or "")
+            not self.allow_private and _target_privacy(target.hostname or "") is not False
         ):
             raise HTTPError(req.full_url, code, "unsafe redirect target", headers, fp)
         return super().redirect_request(req, fp, code, msg, headers, newurl)
@@ -355,13 +386,21 @@ class _RestrictedRedirectHandler(HTTPRedirectHandler):
 
 def urlopen(request: Request, *, timeout: float, context: ssl.SSLContext | None = None):
     initial = urlsplit(request.full_url)
-    allow_private = bool(initial.hostname and _is_private_target(initial.hostname))
-    opener = build_opener(
-        _RestrictedRedirectHandler(allow_private),
-        _DeadlineHTTPHandler(),
-        _DeadlineHTTPSHandler(context=context),
-    )
-    return opener.open(request, timeout=timeout)
+    allow_private = _target_privacy(initial.hostname or "") is True
+    opener = OpenerDirector()
+    opener.add_handler(ProxyHandler({}))
+    opener.add_handler(UnknownHandler())
+    opener.add_handler(HTTPDefaultErrorHandler())
+    opener.add_handler(_RestrictedRedirectHandler(allow_private))
+    opener.add_handler(HTTPErrorProcessor())
+    opener.add_handler(_DeadlineHTTPHandler())
+    opener.add_handler(_DeadlineHTTPSHandler(context=context))
+    previous = getattr(_fetch_local, "allow_private", False)
+    _fetch_local.allow_private = allow_private
+    try:
+        return opener.open(request, timeout=timeout)
+    finally:
+        _fetch_local.allow_private = previous
 
 
 def _response_socket(response: object) -> socket.socket | None:
@@ -390,10 +429,27 @@ def fetch_content(
     _fetch_local.socket = None
     try:
         with dns_deadline(deadline):
-            with urlopen(request, timeout=remaining, context=tls_context) as response:
+            try:
+                response = urlopen(request, timeout=remaining, context=tls_context)
+            except URLError as exc:
+                reason = exc.reason
+                if isinstance(reason, FetchTimeout):
+                    raise reason from exc
+                if deadline is not None and (
+                    isinstance(reason, TimeoutError) or time.monotonic() >= deadline
+                ):
+                    raise FetchTimeout(
+                        f"fetch deadline after {timeout:g} seconds"
+                    ) from exc
+                raise
+            with response:
                 sock = _response_socket(response) or getattr(_fetch_local, "socket", None)
                 if sock is not None:
                     register_socket(sock, token)
+                    if is_cancelled(token):
+                        raise FetchTimeout(
+                            f"fetch cancelled after {timeout:g} seconds"
+                        )
                     if deadline is not None:
                         sock.settimeout(_remaining(deadline, remaining))
                 try:
@@ -423,6 +479,10 @@ def fetch_content(
                     if is_cancelled(token):
                         raise FetchTimeout(
                             f"fetch cancelled after {timeout:g} seconds"
+                        ) from exc
+                    if deadline is not None and time.monotonic() >= deadline:
+                        raise FetchTimeout(
+                            f"fetch deadline after {timeout:g} seconds"
                         ) from exc
                     raise
                 headers: Mapping[str, str] = getattr(response, "headers", {})

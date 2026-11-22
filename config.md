@@ -19,7 +19,7 @@ When running with Docker, environment variables are lifted from a `.env` file in
 the project directory. Copy the [`stack.env`](stack.env) template to `.env` and
 edit it; every supported variable is listed there with its default commented
 out. Compose interpolates `TZ` from the shell or `.env`; it does not discover the
-host timezone, and uses UTC when `TZ` is unset.
+host timezone, and defaults to Argentina Time when `TZ` is unset.
 
 Values not supplied anywhere use the defaults below. Configuration is optional.
 The JSON file is selected with `--config PATH` or `TUPA_CONFIG`.

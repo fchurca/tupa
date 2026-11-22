@@ -291,15 +291,16 @@ def _sources_table(specs: Sequence[SourceSpec] | None) -> str:
         "      </table>\n"
     )
 
-_SCRIPT = """    <script>
-       const sourcesButton = document.getElementById("sources-button");
-       const sourcesDialog = document.getElementById("sources-dialog");
-       sourcesButton.addEventListener("click", () => sourcesDialog.showModal());
-       sourcesDialog.addEventListener("close", () => sourcesButton.focus());
-     </script>"""
+_SCRIPT_BODY = """
+        const sourcesButton = document.getElementById("sources-button");
+        const sourcesDialog = document.getElementById("sources-dialog");
+        sourcesButton.addEventListener("click", () => sourcesDialog.showModal());
+        sourcesDialog.addEventListener("close", () => sourcesButton.focus());
+      """
+_SCRIPT = f"    <script>{_SCRIPT_BODY}</script>"
 
 _SCRIPT_HASH = "sha256-" + base64.b64encode(
-    hashlib.sha256(_SCRIPT.encode("utf-8")).digest()
+    hashlib.sha256(_SCRIPT_BODY.encode("utf-8")).digest()
 ).decode("ascii")
 _CSP = (
     "default-src 'none'; style-src 'unsafe-inline'; "

@@ -17,6 +17,7 @@ from .sources.common import (
     Thresholds,
     begin_fetch,
     cancel_fetch,
+    clear_cancellation,
     clear_fetch_token,
     set_fetch_token,
 )
@@ -24,6 +25,8 @@ from .sources.common import (
 log = logging.getLogger(__name__)
 
 MAX_WORKERS = 16
+_POOL: _DaemonPool | None = None
+_POOL_LOCK = threading.Lock()
 
 
 class _DaemonPool:
@@ -49,16 +52,27 @@ class _DaemonPool:
             if item is None:
                 return
             future, token, fn, args, kwargs = item
-            if future.set_running_or_notify_cancel():
-                set_fetch_token(token)
-                try:
-                    future.set_result(fn(*args, **kwargs))
-                except BaseException as exc:
-                    future.set_exception(exc)
-                finally:
-                    clear_fetch_token()
-                    with self._lock:
-                        self._tokens.pop(future, None)
+            if not future.set_running_or_notify_cancel():
+                clear_cancellation(token)
+                with self._lock:
+                    self._tokens.pop(future, None)
+                continue
+            set_fetch_token(token)
+            result: object = None
+            error: BaseException | None = None
+            try:
+                result = fn(*args, **kwargs)
+            except BaseException as exc:
+                error = exc
+            finally:
+                clear_fetch_token()
+                clear_cancellation(token)
+                with self._lock:
+                    self._tokens.pop(future, None)
+            if error is None:
+                future.set_result(result)
+            else:
+                future.set_exception(error)
 
     def submit(self, fn, *args, **kwargs) -> Future:
         future: Future = Future()
@@ -79,6 +93,14 @@ class _DaemonPool:
             self._tasks.put(None)
         for thread in self._threads:
             thread.join(timeout=0.05)
+
+
+def _get_pool() -> _DaemonPool:
+    global _POOL
+    with _POOL_LOCK:
+        if _POOL is None:
+            _POOL = _DaemonPool(MAX_WORKERS)
+        return _POOL
 
 
 def collect(
@@ -110,7 +132,7 @@ def collect(
     deadline = time.monotonic() + timeout
     groups: dict[str, list[tuple[str, Member]]] = {name: [] for name in selected}
     futures: dict[Future, tuple[str, str]] = {}
-    pool = _DaemonPool(max(1, min(len(tasks), MAX_WORKERS))) if tasks else None
+    pool = _get_pool() if tasks else None
     try:
         if pool is not None:
             futures = {
@@ -159,10 +181,9 @@ def collect(
         if pool is not None:
             for future in futures:
                 pool.cancel_future(future)
-            pool.shutdown()
 
     resolved = {
-        member: aggregate(sorted(results), tz=tz).to_json()
+        member: aggregate(sorted(results, key=lambda item: item[0]), tz=tz).to_json()
         for member, results in groups.items()
     }
     return {"updated": updated, "members": dict(sorted(resolved.items()))}

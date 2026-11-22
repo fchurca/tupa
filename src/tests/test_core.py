@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 import tupa.core as core
 from tupa.model import AR_TZ, SourceSpec, make_member
+from tupa.sources import common
 from tupa.sources.common import active_sockets
 
 
@@ -233,6 +234,64 @@ class CoreTests(unittest.TestCase):
             )
         fetch.assert_not_called()
         self.assertEqual(status["members"]["edenor"]["status"], "unknown")
+
+    def test_duplicate_source_ids_are_aggregated(self):
+        results = []
+        lock = threading.Lock()
+
+        def fake(spec, **kwargs):
+            with lock:
+                results.append(spec.name)
+                status = "operational" if len(results) == 1 else "warn"
+            return make_member(status)
+
+        with patch("tupa.core.fetch_source", side_effect=fake):
+            status = core.collect(
+                None,
+                timeout=1.0,
+                sources={"dup": spec("dup", "edenor")},
+                member_sources={"edenor": ("dup", "dup")},
+            )
+        member = status["members"]["edenor"]
+        self.assertEqual(member["status"], "warn")
+        self.assertIn("dup: operational", member["comment"])
+        self.assertIn("dup: warn", member["comment"])
+
+    def test_cancellation_tokens_are_cleared(self):
+        baseline = len(common._cancelled)
+        release = threading.Event()
+
+        def blocked(spec, **kwargs):
+            release.wait(2)
+            return make_member("operational")
+
+        sources = {f"s{index}": spec(f"s{index}", "m") for index in range(20)}
+        try:
+            with patch("tupa.core.log"), patch(
+                "tupa.core.fetch_source", side_effect=blocked
+            ):
+                core.collect(
+                    None,
+                    timeout=0.05,
+                    sources=sources,
+                    member_sources={"m": tuple(sources)},
+                )
+        finally:
+            release.set()
+        deadline = time.monotonic() + 2
+        while len(common._cancelled) > baseline and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertEqual(len(common._cancelled), baseline)
+
+    def test_pool_is_shared_between_collections(self):
+        sources = {"one": spec("one", "one")}
+        members = {"one": ("one",)}
+        with patch("tupa.core.fetch_source", return_value=make_member("operational")):
+            core.collect(None, timeout=1.0, sources=sources, member_sources=members)
+            first = core._POOL
+            core.collect(None, timeout=1.0, sources=sources, member_sources=members)
+        self.assertIsNotNone(first)
+        self.assertIs(core._POOL, first)
 
     def test_collect_from_config_forwards_settings(self):
         config = SimpleNamespace(
