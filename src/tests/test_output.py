@@ -1,4 +1,6 @@
 import unittest
+from importlib.metadata import PackageNotFoundError
+from unittest.mock import patch
 
 from tupa.output import render, render_html
 from tupa.version import get_version
@@ -76,3 +78,13 @@ class OutputTests(unittest.TestCase):
     def test_render_html_without_members(self):
         payload = render_html({"updated": "now", "members": {}})
         self.assertIn("No hay miembros configurados.".encode(), payload)
+
+
+class VersionTests(unittest.TestCase):
+    def test_uses_installed_metadata(self):
+        with patch("tupa.version.version", return_value="9.9.9"):
+            self.assertEqual(get_version(), "9.9.9")
+
+    def test_falls_back_to_pyproject(self):
+        with patch("tupa.version.version", side_effect=PackageNotFoundError):
+            self.assertRegex(get_version(), r"\d+\.\d+\.\d+")

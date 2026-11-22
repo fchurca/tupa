@@ -35,7 +35,7 @@ class CliTests(unittest.TestCase):
         stdout = io.BytesIO()
         with (
             patch("tupa.cli.load_config") as load,
-            patch("tupa.cli.collect", return_value=status(*states)),
+            patch("tupa.cli.collect_from_config", return_value=status(*states)),
             patch("tupa.cli.sys.stdout", FakeStdout(stdout)),
         ):
             self.configure(load)
@@ -70,7 +70,7 @@ class CliTests(unittest.TestCase):
 
         with (
             patch("tupa.cli.load_config") as load,
-            patch("tupa.cli.collect", return_value=status("operational")),
+            patch("tupa.cli.collect_from_config", return_value=status("operational")),
             patch("tupa.cli.sys.stdout", FakeStdout(BrokenBuffer())),
         ):
             self.configure(load)

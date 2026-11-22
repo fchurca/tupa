@@ -6,7 +6,7 @@ import statistics
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 
-from ..model import AR_TZ, Member, SourceSpec, make_member, now_rfc3339
+from ..model import AR_TZ, Member, SourceSpec, make_member
 from .common import DEFAULT_DEMAND_THRESHOLDS, DemandThresholds, fetch_text
 
 BASE_URL = (
@@ -36,7 +36,9 @@ def _timestamp(value: object) -> str:
     try:
         parsed = datetime.fromisoformat(str(value).replace("-0300", "-03:00"))
     except ValueError:
-        return now_rfc3339()
+        raise ValueError(f"CAMMESA fecha no válida: {value!r}") from None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=AR_TZ)
     return parsed.astimezone(AR_TZ).isoformat(timespec="seconds")
 
 

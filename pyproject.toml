@@ -4,10 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tupa"
-version = "0.4.0"
+version = "0.5.0"
 description = "Telemetría Unificada de Potencia Argentina"
 requires-python = ">=3.12"
 dependencies = []
+
+[project.scripts]
+tupa = "tupa.cli:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

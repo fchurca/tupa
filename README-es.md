@@ -55,6 +55,9 @@ python3 -m tupa
 python3 -m unittest discover -s tests
 ```
 
+Desde la raíz del repositorio, `python3 -m pip install .` también instala el
+comando `tupa`.
+
 ### Versiones
 
 La versión se declara una sola vez en `pyproject.toml`. Después de actualizarla,
@@ -95,6 +98,10 @@ Los colores (verde, amarillo, naranja, rojo, gris) son solo indicaciones
 visuales. Un `system` tiene su propia marca de tiempo `updated` y un mapa
 `members` indexado por nombre de miembro. Las marcas de tiempo son cadenas
 ISO 8601 / RFC 3339. Consulte el [esquema CDDL](status.cddl).
+
+ENRE solo publica una hora del día: TUPA la combina con la fecha HTTP
+`Last-Modified` del archivo. Sin esa cabecera, `updated` registra cuándo TUPA
+observó el dato, sin suponer una fecha.
 
 Los cortes programados son cortes: usan los mismos umbrales de severidad que
 cualquier otro corte.

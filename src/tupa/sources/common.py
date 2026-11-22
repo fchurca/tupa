@@ -36,18 +36,25 @@ def legacy_tls_context() -> ssl.SSLContext:
     return context
 
 
-def fetch_text(
+def fetch_content(
     url: str, *, timeout: float, tls_context: ssl.SSLContext | None = None
-) -> str:
+) -> tuple[str, Mapping[str, str]]:
     request = Request(url, headers={"User-Agent": USER_AGENT})
     with urlopen(request, timeout=timeout, context=tls_context) as response:
         raw = response.read()
+        headers: Mapping[str, str] = getattr(response, "headers", {})
     for encoding in ("utf-8", "latin-1"):
         try:
-            return raw.decode(encoding)
+            return raw.decode(encoding), headers
         except UnicodeDecodeError:
             continue
-    return raw.decode("utf-8", errors="replace")
+    return raw.decode("utf-8", errors="replace"), headers
+
+
+def fetch_text(
+    url: str, *, timeout: float, tls_context: ssl.SSLContext | None = None
+) -> str:
+    return fetch_content(url, timeout=timeout, tls_context=tls_context)[0]
 
 
 class _JSLiteral:

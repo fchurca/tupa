@@ -53,6 +53,9 @@ python3 -m tupa
 python3 -m unittest discover -s tests
 ```
 
+From the repository root, `python3 -m pip install .` also installs a `tupa`
+command.
+
 ### Releases
 
 The version is declared once in `pyproject.toml`. After bumping it, create a Git
@@ -91,6 +94,10 @@ A `member` carries a `status` (`operational`, `warn`, `high`,
 (green, yellow, orange, red, grey) are display hints only. A `system` has its
 own `updated` timestamp and a `members` map keyed by member name. Timestamps
 are ISO 8601 / RFC 3339 strings. See the [CDDL schema](status.cddl).
+
+ENRE only publishes a time of day: TUPA pairs it with the file's HTTP
+`Last-Modified` date. Without that header, `updated` records when TUPA observed
+the data instead of assuming a date.
 
 Planned outages are outages: they use the same severity thresholds as any other
 outage.

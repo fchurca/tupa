@@ -268,11 +268,13 @@ def load_config(argv: Sequence[str] | None = None) -> Config:
                 if source_defs[source_name].member != member:
                     raise ValueError(f"source {source_name!r} does not belong to {member!r}")
 
+        selected_env = os.environ.get("TUPA_MEMBERS") or os.environ.get("TUPA_SOURCES")
+        selected_source = (
+            selected_env if selected_env is not None else file_config.get("selected_members")
+        )
         selected = _names(
             args.members + (args.member_opt or [])
-            or value("selected_members", "TUPA_MEMBERS", None, None)
-            or os.environ.get("TUPA_SOURCES")
-            or file_config.get("selected_members")
+            or selected_source
             or tuple(member_defs),
             "members",
         )

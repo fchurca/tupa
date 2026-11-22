@@ -1,4 +1,5 @@
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import tupa.core as core
@@ -127,6 +128,27 @@ class CoreTests(unittest.TestCase):
             )
         fetch.assert_not_called()
         self.assertEqual(status["members"]["edenor"]["status"], "unknown")
+
+    def test_collect_from_config_forwards_settings(self):
+        config = SimpleNamespace(
+            members=("edenor",),
+            timeout=7.0,
+            thresholds={"edenor": object()},
+            demand_thresholds=object(),
+            sources={"one": spec("one", "edenor")},
+            member_sources={"edenor": ("one",)},
+        )
+        with patch("tupa.core.collect", return_value={"ok": True}) as collect:
+            result = core.collect_from_config(config)
+        self.assertEqual(result, {"ok": True})
+        collect.assert_called_once_with(
+            ("edenor",),
+            timeout=7.0,
+            thresholds=config.thresholds,
+            demand_thresholds=config.demand_thresholds,
+            sources=config.sources,
+            member_sources=config.member_sources,
+        )
 
     def test_status_matches_cddl_shape(self):
         sources = {"one": spec("one", "one")}

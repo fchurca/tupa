@@ -123,6 +123,8 @@ Notes:
   they may contain letters, digits, underscores and hyphens.
 - Repeated names are de-duplicated. Unknown members, unknown sources, and
   sources assigned to the wrong member are rejected.
+- `TUPA_MEMBERS` takes precedence over the legacy alias `TUPA_SOURCES`; both
+  override `selected_members` from JSON.
 - Booleans accept `1`, `true`, `yes`, `on` and `0`, `false`, `no`, `off`
   (case-insensitive).
 - `port` is 1-65535, `timeout` is at least 0.1, `ttl` is at least 0 (zero

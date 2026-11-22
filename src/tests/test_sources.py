@@ -1,11 +1,12 @@
 import io
+import json
 import ssl
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 from tupa.model import SourceSpec
-from tupa.sources import cammesa, edenor, edesur
+from tupa.sources import DEFAULT_SOURCES, cammesa
 from tupa.sources.common import (
     USER_AGENT,
     DemandThresholds,
@@ -13,31 +14,45 @@ from tupa.sources.common import (
     legacy_tls_context,
     thresholds_from,
 )
+from tupa.sources.enre import fetch_enre
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
 
-def response(name):
-    return io.BytesIO((FIXTURES / name).read_bytes())
+class FakeResponse(io.BytesIO):
+    def __init__(self, data, headers=None):
+        super().__init__(data)
+        self.headers = headers or {}
+
+
+def response(name, headers=None):
+    return FakeResponse((FIXTURES / name).read_bytes(), headers)
 
 
 class SourceTests(unittest.TestCase):
-    def fetch(self, source, fixture_name):
+    def fetch(self, source_name, fixture_name, *, thresholds=None, headers=None):
+        spec = DEFAULT_SOURCES[source_name]
         with patch(
-            "tupa.sources.common.urlopen", return_value=response(fixture_name)
+            "tupa.sources.common.urlopen",
+            return_value=response(fixture_name, headers),
         ) as mock:
-            member = source.fetch(timeout=4.0)
+            member = fetch_enre(
+                name=spec.member,
+                empresa=spec.empresa,
+                url=spec.url,
+                timeout=4.0,
+                thresholds=thresholds,
+            )
         return member, mock
 
     def test_edenor_active_outage(self):
-        member, mock = self.fetch(edenor, "edenor_active.js")
+        headers = {"Last-Modified": "Sat, 21 Nov 2026 16:25:00 GMT"}
+        member, mock = self.fetch("enre_edenor", "edenor_active.js", headers=headers)
         self.assertEqual(member.status, "operational")
         self.assertIn("138 usuarios sin suministro", member.comment)
-        self.assertTrue(member.updated.endswith("-03:00"))
-        self.assertTrue(member.updated.startswith("20"))
-        self.assertIn("13:25:00", member.updated)
+        self.assertEqual(member.updated, "2026-11-21T13:25:00-03:00")
         request = mock.call_args.args[0]
-        self.assertEqual(request.full_url, edenor.URL)
+        self.assertEqual(request.full_url, DEFAULT_SOURCES["enre_edenor"].url)
         self.assertEqual(request.get_header("User-agent"), USER_AGENT)
         self.assertEqual(mock.call_args.kwargs["timeout"], 4.0)
         context = mock.call_args.kwargs["context"]
@@ -45,12 +60,23 @@ class SourceTests(unittest.TestCase):
         self.assertEqual(context.verify_mode, ssl.CERT_REQUIRED)
         self.assertTrue(context.check_hostname)
 
+    def test_enre_without_date_is_not_backdated(self):
+        member, _ = self.fetch("enre_edenor", "edenor_active.js")
+        self.assertIn("13:25", member.comment)
+        self.assertIn("fecha no informada", member.comment)
+        self.assertNotIn("13:25:00", member.updated)
+        self.assertTrue(member.updated.endswith("-03:00"))
+
+        member, _ = self.fetch(
+            "enre_edenor", "edenor_active.js", headers={"Last-Modified": "invalid"}
+        )
+        self.assertIn("fecha no informada", member.comment)
+
     def test_custom_thresholds_are_used(self):
         custom = thresholds_from({"edenor": 138}, (0.5, 1.5, 2.0))
-        with patch(
-            "tupa.sources.common.urlopen", return_value=response("edenor_active.js")
-        ):
-            member = edenor.fetch(timeout=1.0, thresholds=custom)
+        member, _ = self.fetch(
+            "enre_edenor", "edenor_active.js", thresholds=custom
+        )
         self.assertEqual(member.status, "warn")
 
     def test_generic_fetch_uses_default_tls(self):
@@ -61,32 +87,28 @@ class SourceTests(unittest.TestCase):
         self.assertIsNone(mock.call_args.kwargs["context"])
 
     def test_edenor_severe_outages(self):
-        high, _ = self.fetch(edenor, "edenor_high.js")
-        disaster, _ = self.fetch(edenor, "edenor_disaster.js")
+        high, _ = self.fetch("enre_edenor", "edenor_high.js")
+        disaster, _ = self.fetch("enre_edenor", "edenor_disaster.js")
         self.assertEqual(high.status, "high")
         self.assertEqual(disaster.status, "disaster")
 
     def test_planned_outages_use_regular_thresholds(self):
-        member, _ = self.fetch(edesur, "edesur_planned.js")
+        member, _ = self.fetch("enre_edesur", "edesur_planned.js")
         self.assertEqual(member.status, "warn")
         self.assertIn("2 cortes programados", member.comment)
 
     def test_na_value_is_unknown(self):
-        member, _ = self.fetch(edenor, "edenor_na.js")
+        member, _ = self.fetch("enre_edenor", "edenor_na.js")
         self.assertEqual(member.status, "unknown")
         self.assertIn("N/A", member.comment)
 
     def test_wrong_empresa_is_rejected(self):
-        with patch(
-            "tupa.sources.common.urlopen", return_value=response("edesur_planned.js")
-        ):
-            with self.assertRaisesRegex(ValueError, "unexpected empresa"):
-                edenor.fetch(timeout=1.0)
+        with self.assertRaisesRegex(ValueError, "unexpected empresa"):
+            self.fetch("enre_edenor", "edesur_planned.js")
 
     def test_malformed_data_is_rejected(self):
-        with patch("tupa.sources.common.urlopen", return_value=response("broken.js")):
-            with self.assertRaises(ValueError):
-                edesur.fetch(timeout=1.0)
+        with self.assertRaises(ValueError):
+            self.fetch("enre_edesur", "broken.js")
 
     def test_cammesa_high_deficit(self):
         spec = SourceSpec("cammesa_edenor", "cammesa_demand", "edenor", region=1077)
@@ -118,3 +140,33 @@ class SourceTests(unittest.TestCase):
             member = cammesa.fetch_demand(spec=spec, timeout=1.0)
         self.assertEqual(member.status, "unknown")
         self.assertIn("sin datos comparables", member.comment)
+
+    def test_cammesa_invalid_fecha_is_rejected(self):
+        spec = SourceSpec("cammesa_edenor", "cammesa_demand", "edenor", region=1077)
+        payload = [
+            {
+                "fecha": "not-a-date",
+                "demHoy": 700,
+                "demAyer": 1000,
+                "demSemanaAnt": 1000,
+            }
+        ]
+        with (
+            patch("tupa.sources.cammesa.fetch_text", return_value=json.dumps(payload)),
+            self.assertRaisesRegex(ValueError, "fecha no válida"),
+        ):
+            cammesa.fetch_demand(spec=spec, timeout=1.0)
+
+    def test_cammesa_naive_fecha_uses_local_offset(self):
+        spec = SourceSpec("cammesa_edenor", "cammesa_demand", "edenor", region=1077)
+        payload = [
+            {
+                "fecha": "2026-11-21T14:00:00",
+                "demHoy": 700,
+                "demAyer": 1000,
+                "demSemanaAnt": 1000,
+            }
+        ]
+        with patch("tupa.sources.cammesa.fetch_text", return_value=json.dumps(payload)):
+            member = cammesa.fetch_demand(spec=spec, timeout=1.0)
+        self.assertEqual(member.updated, "2026-11-21T14:00:00-03:00")

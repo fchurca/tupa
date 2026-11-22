@@ -56,6 +56,17 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.host, "args.example")
         self.assertEqual(config.port, 9100)
 
+    def test_members_env_overrides_json_and_sources_alias(self):
+        path = self.write_json({"selected_members": ["edenor"]})
+        with self.clean_env(TUPA_CONFIG=path, TUPA_SOURCES="edesur"):
+            config = load_config([])
+        self.assertEqual(config.members, ("edesur",))
+
+        env = {"TUPA_CONFIG": path, "TUPA_MEMBERS": "edenor", "TUPA_SOURCES": "edesur"}
+        with self.clean_env(**env):
+            config = load_config([])
+        self.assertEqual(config.members, ("edenor",))
+
     def test_env_over_json_and_serve_flag(self):
         path = self.write_json({"selected_members": ["edenor"], "host": "json.example", "serve": False})
         with self.clean_env(TUPA_CONFIG=path, TUPA_HOST="env.example", TUPA_SERVE="true"):

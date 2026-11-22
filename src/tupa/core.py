@@ -4,6 +4,7 @@ import logging
 from collections.abc import Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from .config import Config
 from .model import Member, SourceSpec, aggregate, now_rfc3339, unknown_member
 from .sources import DEFAULT_MEMBERS, DEFAULT_SOURCES, fetch_source
 from .sources.common import DEFAULT_DEMAND_THRESHOLDS, DemandThresholds, Thresholds
@@ -59,3 +60,14 @@ def collect(
         for member, results in groups.items()
     }
     return {"updated": updated, "members": dict(sorted(resolved.items()))}
+
+
+def collect_from_config(config: Config) -> dict:
+    return collect(
+        config.members or None,
+        timeout=config.timeout,
+        thresholds=config.thresholds,
+        demand_thresholds=config.demand_thresholds,
+        sources=config.sources,
+        member_sources=config.member_sources,
+    )
