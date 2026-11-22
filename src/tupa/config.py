@@ -292,7 +292,7 @@ def load_config(argv: Sequence[str] | None = None) -> Config:
         if not host:
             raise ValueError("host must not be empty")
         port = _int(value("port", "TUPA_PORT", args.port, 8000), "port", 1, 65535)
-        timeout = _float(value("timeout", "TUPA_TIMEOUT", args.timeout, 10.0), "timeout", 0.1)
+        timeout = _float(value("timeout", "TUPA_TIMEOUT", args.timeout, 20.0), "timeout", 0.1)
         ttl = _float(value("ttl", "TUPA_TTL", args.ttl, 60.0), "ttl", 0.0)
         output_format = str(value("format", "TUPA_FORMAT", args.format, "json")).strip().lower()
         if output_format != "json":

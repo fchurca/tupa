@@ -25,7 +25,7 @@ class CliTests(unittest.TestCase):
         mock_load.return_value.serve = serve
         mock_load.return_value.indent = 2
         mock_load.return_value.members = ()
-        mock_load.return_value.timeout = 10.0
+        mock_load.return_value.timeout = 20.0
         mock_load.return_value.thresholds = {}
         mock_load.return_value.demand_thresholds = None
         mock_load.return_value.sources = {}

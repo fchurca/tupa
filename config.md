@@ -42,7 +42,7 @@ values, including an invalid boolean for `strict`, exit with status 2.
   "serve": false,
   "host": "127.0.0.1",
   "port": 8000,
-  "timeout": 10,
+  "timeout": 20,
   "ttl": 60,
   "format": "json",
   "indent": 2,
@@ -134,7 +134,7 @@ the source name.
 | Force one-shot mode | `--once` | — | — | off |
 | Listen address | `--host ADDR` | `TUPA_HOST` | `host` | `127.0.0.1` |
 | Listen port | `--port PORT` | `TUPA_PORT` | `port` | `8000` |
-| Upstream timeout (seconds) | `--timeout SECONDS` | `TUPA_TIMEOUT` | `timeout` | `10` |
+| Upstream timeout (seconds) | `--timeout SECONDS` | `TUPA_TIMEOUT` | `timeout` | `20` |
 | Daemon cache TTL (seconds) | `--ttl SECONDS` | `TUPA_TTL` | `ttl` | `60` |
 | Output format | `--format json` | `TUPA_FORMAT` | `format` | `json` |
 | JSON indentation (0-8 spaces) | `--indent SPACES` | `TUPA_INDENT` | `indent` | `2` |
@@ -161,14 +161,24 @@ Notes:
 - `port` is 1-65535, `timeout` is at least 0.1, `ttl` is at least 0 (zero
   disables caching), and `indent` is 0-8. `format` only supports `json`.
 - `timeout` is the overall deadline for a collection and the socket timeout
-  budget for each upstream fetch. The socket budget is recomputed from the
-  absolute deadline after DNS and connection setup, and checked while reading
-  the body, so a slow upstream cannot extend the collection indefinitely.
-  Pending fetches have their sockets closed; workers are daemon threads joined
-  briefly on shutdown. Redirects follow urllib defaults: at most 10 distinct
-  URLs and 4 repeats of the same URL. Redirects to loopback, private,
-  link-local or reserved addresses are rejected unless the original URL itself
-  used such an address.
+  budget for each upstream fetch. Fetches run in parallel under that one
+  deadline, so the default 20 seconds bounds the whole collection, not each
+  source. The socket budget is recomputed from the absolute deadline after
+  connection setup and checked while reading the body, so a slow upstream
+  cannot extend the collection indefinitely. Pending fetches have their sockets
+  closed; workers are daemon threads joined briefly on shutdown. Lower the
+  timeout for tight health checks, raise it for slow upstreams.
+- DNS lookups are made by the operating system resolver (`getaddrinfo`), which
+  Python cannot interrupt: a slow lookup can consume the budget and mark a
+  source unavailable even if the name would eventually resolve, and a stalled
+  resolver keeps a worker busy until the OS gives up. The default leaves room
+  for ordinary resolver delays; with a slow resolver or many nameservers,
+  raise `TUPA_TIMEOUT` or point the host at a faster resolver.
+- In daemon mode a cache miss refreshes synchronously, so the first request
+  after the TTL expires can take up to the timeout to respond.
+- Redirects follow urllib defaults: at most 10 distinct URLs and 4 repeats of
+  the same URL. Redirects to loopback, private, link-local or reserved addresses
+  are rejected unless the original URL itself used such an address.
 - Invalid values exit with status 2 and an explanatory message.
 
 ## Timezone

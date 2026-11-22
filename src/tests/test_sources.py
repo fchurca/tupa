@@ -1,6 +1,5 @@
 import io
 import json
-import multiprocessing
 import socket
 import ssl
 import threading
@@ -19,7 +18,6 @@ from tupa.sources import DEFAULT_SOURCES, cammesa
 from tupa.sources.common import (
     USER_AGENT,
     DemandThresholds,
-    _dns_local,
     active_sockets,
     FetchTimeout,
     _is_private_target,
@@ -27,7 +25,6 @@ from tupa.sources.common import (
     cancel_fetch,
     clear_cancellation,
     clear_fetch_token,
-    dns_deadline,
     fetch_text,
     legacy_tls_context,
     register_socket,
@@ -107,43 +104,6 @@ class SourceTests(unittest.TestCase):
         ) as mock:
             fetch_text("https://example.test/data", timeout=2.0)
         self.assertIsNone(mock.call_args.kwargs["context"])
-
-    def test_dns_lookup_is_bounded_by_deadline(self):
-        before = len(multiprocessing.active_children())
-        start = time.monotonic()
-        with self.assertRaises(socket.gaierror) as caught:
-            with dns_deadline(time.monotonic() + 0.001):
-                socket.getaddrinfo("dns-timeout.invalid", 80)
-        self.assertLess(time.monotonic() - start, 2.0)
-        self.assertIn("timed out", str(caught.exception))
-        self.assertEqual(len(multiprocessing.active_children()), before)
-
-    def test_dns_bypasses_child_for_numeric_hosts_and_no_deadline(self):
-        with patch(
-            "tupa.sources.common.multiprocessing.get_context",
-            side_effect=AssertionError("child spawned"),
-        ):
-            numeric = socket.getaddrinfo("127.0.0.1", 80, type=socket.SOCK_STREAM)
-            plain = socket.getaddrinfo("localhost", 80, type=socket.SOCK_STREAM)
-        self.assertTrue(numeric)
-        self.assertTrue(plain)
-
-    def test_dns_deadline_restores_previous_value(self):
-        outer = time.monotonic() + 10
-        with dns_deadline(outer):
-            with dns_deadline(outer + 1):
-                self.assertEqual(_dns_local.deadline, outer + 1)
-                self.assertEqual(common._fetch_local.deadline, outer + 1)
-            self.assertEqual(_dns_local.deadline, outer)
-        self.assertIsNone(getattr(_dns_local, "deadline", None))
-        self.assertIsNone(getattr(common._fetch_local, "deadline", None))
-
-    def test_dns_lookup_success_returns_results(self):
-        before = len(multiprocessing.active_children())
-        with dns_deadline(time.monotonic() + 2):
-            infos = socket.getaddrinfo("localhost", 80, type=socket.SOCK_STREAM)
-        self.assertTrue(infos)
-        self.assertEqual(len(multiprocessing.active_children()), before)
 
     def test_cancel_fetch_closes_registered_socket(self):
         left, right = socket.socketpair()
@@ -484,11 +444,3 @@ class SourceTests(unittest.TestCase):
             server.shutdown()
             server.server_close()
             thread.join(timeout=2)
-
-    def test_dns_child_send_failure_is_silent(self):
-        receiver, sender = multiprocessing.get_context("spawn").Pipe(duplex=False)
-        receiver.close()
-        try:
-            common._send_result(sender, ("ok", []))
-        finally:
-            sender.close()

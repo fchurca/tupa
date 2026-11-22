@@ -35,7 +35,7 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(set(config.sources), {"enre_edenor", "enre_edesur", "cammesa_edenor", "cammesa_edesur"})
         self.assertFalse(config.serve)
         self.assertEqual((config.host, config.port), ("127.0.0.1", 8000))
-        self.assertEqual((config.timeout, config.ttl, config.indent), (10.0, 60.0, 2))
+        self.assertEqual((config.timeout, config.ttl, config.indent), (20.0, 60.0, 2))
         self.assertEqual(str(config.tz), "America/Argentina/Buenos_Aires")
         self.assertFalse(config.strict)
         self.assertEqual(config.customers["edenor"], 3_400_000)

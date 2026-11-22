@@ -3,8 +3,6 @@ from __future__ import annotations
 import http.client
 import ipaddress
 import math
-import multiprocessing
-import multiprocessing.connection
 import re
 import socket
 import ssl
@@ -153,97 +151,14 @@ def active_sockets() -> int:
         return sum(len(socks) for socks in _sockets.values())
 
 
-_original_getaddrinfo = socket.getaddrinfo
-_dns_local = threading.local()
-
-
-def _dns_timeout_errno() -> int:
-    return getattr(socket, "EAI_TIMEDOUT", socket.EAI_AGAIN)
-
-
-def _is_numeric_host(host: object) -> bool:
-    if not isinstance(host, str):
-        return False
-    try:
-        ipaddress.ip_address(host)
-    except ValueError:
-        return False
-    return True
-
-
-def _send_result(conn, payload) -> None:
-    try:
-        conn.send(payload)
-    except OSError:
-        pass
-
-
-def _resolve_child(conn, host, port, family, socktype, proto, flags) -> None:
-    try:
-        results = _original_getaddrinfo(host, port, family, socktype, proto, flags)
-        _send_result(conn, ("ok", results))
-    except socket.gaierror as exc:
-        code = exc.args[0] if exc.args else socket.EAI_AGAIN
-        message = exc.args[1] if len(exc.args) > 1 else str(exc)
-        _send_result(conn, ("error", code, message))
-    except Exception as exc:
-        _send_result(conn, ("error", socket.EAI_FAIL, f"{type(exc).__name__}: {exc}"))
-    finally:
-        conn.close()
-
-
-def _bounded_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
-    deadline = getattr(_dns_local, "deadline", None)
-    if deadline is None or _is_numeric_host(host):
-        return _original_getaddrinfo(host, port, family, type, proto, flags)
-    remaining = max(0.001, deadline - time.monotonic())
-    context = multiprocessing.get_context("spawn")
-    receiver, sender = context.Pipe(duplex=False)
-    process = context.Process(
-        target=_resolve_child,
-        args=(sender, host, port, family, type, proto, flags),
-        daemon=True,
-    )
-    started = False
-    try:
-        process.start()
-        started = True
-        sender.close()
-        if not multiprocessing.connection.wait([receiver], timeout=remaining):
-            raise socket.gaierror(_dns_timeout_errno(), "name resolution timed out")
-        try:
-            payload = receiver.recv()
-        except EOFError as exc:
-            raise socket.gaierror(socket.EAI_AGAIN, "name resolution failed") from exc
-        if payload[0] == "ok":
-            return payload[1]
-        raise socket.gaierror(payload[1], payload[2])
-    finally:
-        sender.close()
-        receiver.close()
-        if started:
-            if process.is_alive():
-                process.terminate()
-                process.join(0.2)
-            if process.is_alive():
-                process.kill()
-            process.join()
-
-
 @contextmanager
-def dns_deadline(deadline: float | None):
-    previous_dns = getattr(_dns_local, "deadline", None)
-    previous_fetch = getattr(_fetch_local, "deadline", None)
-    _dns_local.deadline = deadline
+def _fetch_deadline(deadline: float | None):
+    previous = getattr(_fetch_local, "deadline", None)
     _fetch_local.deadline = deadline
     try:
         yield
     finally:
-        _dns_local.deadline = previous_dns
-        _fetch_local.deadline = previous_fetch
-
-
-socket.getaddrinfo = _bounded_getaddrinfo
+        _fetch_local.deadline = previous
 
 
 def _remaining(deadline: float | None, fallback: float | None = None) -> float | None:
@@ -428,7 +343,7 @@ def fetch_content(
     previous_socket = getattr(_fetch_local, "socket", None)
     _fetch_local.socket = None
     try:
-        with dns_deadline(deadline):
+        with _fetch_deadline(deadline):
             try:
                 response = urlopen(request, timeout=remaining, context=tls_context)
             except URLError as exc:
