@@ -26,7 +26,7 @@ def collect(
 ) -> dict:
     source_defs = DEFAULT_SOURCES if sources is None else sources
     definition = DEFAULT_MEMBERS if member_sources is None else member_sources
-    selected = tuple(members) if members else tuple(definition)
+    selected = tuple(definition) if members is None else tuple(members)
     for name in selected:
         if name not in definition:
             raise ValueError(f"unknown member: {name!r}")
@@ -38,7 +38,8 @@ def collect(
     ]
     updated = now_rfc3339()
     groups: dict[str, list[tuple[str, Member]]] = {name: [] for name in selected}
-    with ThreadPoolExecutor(max_workers=max(1, min(len(tasks), MAX_WORKERS))) as pool:
+    pool = ThreadPoolExecutor(max_workers=max(1, min(len(tasks), MAX_WORKERS)))
+    try:
         futures = {
             pool.submit(
                 fetch_source,
@@ -50,12 +51,13 @@ def collect(
             for member, source_id, spec in tasks
         }
         pending = set(futures)
+        deadline = time.monotonic() + timeout
         try:
             for future in as_completed(futures, timeout=timeout):
                 pending.discard(future)
                 member, source_id = futures[future]
                 try:
-                    result = future.result()
+                    result = future.result(timeout=max(0.0, deadline - time.monotonic()))
                 except TimeoutError:
                     log.warning("source %s timed out after %s seconds", source_id, timeout)
                     result = unknown_member(
@@ -79,6 +81,8 @@ def collect(
                     ),
                 )
             )
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
 
     resolved = {
         member: aggregate(sorted(results)).to_json()
@@ -89,7 +93,7 @@ def collect(
 
 def collect_from_config(config: Config) -> dict:
     return collect(
-        config.members or None,
+        config.members,
         timeout=config.timeout,
         thresholds=config.thresholds,
         demand_thresholds=config.demand_thresholds,

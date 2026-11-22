@@ -36,6 +36,12 @@ class CommonTests(unittest.TestCase):
         self.assertEqual(data["cortesProgramados"][1]["partido"], "CA\u00d1UELAS")
         self.assertEqual(len(data["cortesProgramados"]), 2)
 
+    def test_decodes_unicode_escape_sequences(self):
+        data = decode_js_data('var data = {"x": "a\\u00f1o", "y": "\\u2603"}')
+        self.assertEqual(data, {"x": "año", "y": "☃"})
+        with self.assertRaises(ValueError):
+            decode_js_data('var data = {"x": "\\u00f"}')
+
     def test_trailing_comma_and_missing_assignment(self):
         self.assertEqual(decode_js_data("var data = { a: 1, }"), {"a": 1})
         with self.assertRaises(ValueError):

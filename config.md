@@ -131,6 +131,10 @@ Notes:
   they may contain letters, digits, underscores and hyphens.
 - Repeated names are de-duplicated. Unknown members, unknown sources, and
   sources assigned to the wrong member are rejected.
+- An explicit empty member selection is intentional: `selected_members: []`, an
+  empty `TUPA_MEMBERS`/`TUPA_SOURCES`, or an explicitly empty CLI selection
+  results in no members selected. TUPA logs an info message for empty env/JSON
+  selections.
 - `TUPA_MEMBERS` takes precedence over the legacy alias `TUPA_SOURCES`; both
   override `selected_members` from JSON.
 - Booleans accept `1`, `true`, `yes`, `on` and `0`, `false`, `no`, `off`

@@ -311,16 +311,22 @@ def load_config(argv: Sequence[str] | None = None) -> Config:
                 if source_defs[source_name].member != member:
                     raise ValueError(f"source {source_name!r} does not belong to {member!r}")
 
-        selected_env = os.environ.get("TUPA_MEMBERS") or os.environ.get("TUPA_SOURCES")
-        selected_source = (
-            selected_env if selected_env is not None else file_config.get("selected_members")
-        )
-        selected = _names(
-            args.members + (args.member_opt or [])
-            or selected_source
-            or tuple(member_defs),
-            "members",
-        )
+        cli_members = args.members + (args.member_opt or [])
+        env_members = os.environ.get("TUPA_MEMBERS")
+        if env_members is None:
+            env_members = os.environ.get("TUPA_SOURCES")
+        if cli_members:
+            selected = _names(cli_members, "members")
+        elif env_members is not None:
+            selected = _names(env_members, "members")
+            if not selected:
+                log.info("empty member selection from environment; no members selected")
+        elif "selected_members" in file_config:
+            selected = _names(file_config.get("selected_members"), "selected_members")
+            if not selected:
+                log.info("empty selected_members in config; no members selected")
+        else:
+            selected = tuple(member_defs)
         for name in selected:
             if name not in member_defs:
                 raise ValueError(f"unknown member: {name!r}")

@@ -127,7 +127,15 @@ class _JSLiteral:
                     break
                 esc = self.text[self.pos]
                 self.pos += 1
-                out.append({"n": "\n", "r": "\r", "t": "\t"}.get(esc, esc))
+                if esc == "u":
+                    hex_digits = self.text[self.pos : self.pos + 4]
+                    if len(hex_digits) == 4 and re.fullmatch(r"[0-9A-Fa-f]{4}", hex_digits):
+                        out.append(chr(int(hex_digits, 16)))
+                        self.pos += 4
+                    else:
+                        raise ValueError(f"invalid unicode escape at offset {self.pos - 2}")
+                else:
+                    out.append({"n": "\n", "r": "\r", "t": "\t", '"': '"', "'": "'", "\\": "\\"}.get(esc, esc))
             else:
                 out.append(char)
         raise ValueError("unterminated string")

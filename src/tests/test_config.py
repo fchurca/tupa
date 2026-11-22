@@ -161,6 +161,18 @@ class ConfigTests(unittest.TestCase):
             config = load_config(["--member", "edenor", "edenor"])
         self.assertEqual(config.members, ("edenor",))
 
+    def test_explicit_empty_member_selection_is_intentional(self):
+        path = self.write_json({"selected_members": []})
+        with self.clean_env(TUPA_CONFIG=path), self.assertLogs("tupa.config", level="INFO") as logs:
+            config = load_config([])
+        self.assertEqual(config.members, ())
+        self.assertTrue(any("empty selected_members" in m for m in logs.output))
+
+        with self.clean_env(TUPA_MEMBERS=""), self.assertLogs("tupa.config", level="INFO") as logs:
+            config = load_config([])
+        self.assertEqual(config.members, ())
+        self.assertTrue(any("empty member selection from environment" in m for m in logs.output))
+
     def test_unknown_member_exits_two(self):
         with self.clean_env(), self.quiet_error(), self.assertRaises(SystemExit) as ctx:
             load_config(["nope"])

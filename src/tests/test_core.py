@@ -68,6 +68,14 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(calls, ["two"])
         self.assertEqual(list(status["members"]), ["two"])
 
+    def test_explicit_empty_members_means_no_members(self):
+        sources = {"one": spec("one", "one")}
+        members = {"one": ("one",)}
+        with patch("tupa.core.fetch_source") as fetch:
+            status = core.collect([], timeout=1.0, sources=sources, member_sources=members)
+        fetch.assert_not_called()
+        self.assertEqual(status["members"], {})
+
     def test_collect_forwards_thresholds(self):
         received = []
 
