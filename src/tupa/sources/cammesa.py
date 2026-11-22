@@ -21,14 +21,16 @@ def url_for(region: int) -> str:
     return f"{BASE_URL}{region}"
 
 
-def _number(value: object) -> float | None:
+def _number(value: object, *, allow_zero: bool = False) -> float | None:
     if isinstance(value, bool) or value is None:
         return None
     try:
         number = float(value)
     except (TypeError, ValueError):
         return None
-    if not math.isfinite(number) or number <= 0:
+    if not math.isfinite(number) or number < 0:
+        return None
+    if number == 0 and not allow_zero:
         return None
     return number
 
@@ -51,15 +53,16 @@ def _rows(payload: object) -> Sequence[tuple[str, float, float, float]]:
     for item in payload:
         if not isinstance(item, dict):
             continue
-        hoy = _number(item.get("demHoy"))
+        fecha = str(item.get("fecha", "")).strip()
+        hoy = _number(item.get("demHoy"), allow_zero=True)
         ayer = _number(item.get("demAyer"))
         semana = _number(item.get("demSemanaAnt"))
-        if hoy is None or ayer is None or semana is None:
+        if not fecha or hoy is None or ayer is None or semana is None:
             continue
         reference = min(ayer, semana)
         deficit = max(0.0, 1.0 - hoy / reference)
-        result.append((str(item.get("fecha", "")), hoy, reference, deficit))
-    return result
+        result.append((fecha, hoy, reference, deficit))
+    return sorted(result, key=lambda row: row[0])
 
 
 def fetch_demand(

@@ -10,7 +10,8 @@ services:
       - path: .env
         required: false
     environment:
-      TZ: ${TZ:-UTC}
+      # TZ is interpolated from the shell or .env; it defaults to ART.
+      TZ: ${TZ:-America/Argentina/Buenos_Aires}
       RES_OPTIONS: "${RES_OPTIONS:-timeout:1 attempts:1}"
     restart: unless-stopped
     read_only: true

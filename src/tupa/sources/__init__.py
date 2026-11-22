@@ -9,8 +9,6 @@ from . import cammesa
 from .cammesa import fetch_demand
 from .enre import fetch_enre
 
-SOURCE_KINDS = frozenset({"enre_outages", "cammesa_demand"})
-
 DEFAULT_SOURCES: dict[str, SourceSpec] = {
     "enre_edenor": SourceSpec(
         name="enre_edenor",

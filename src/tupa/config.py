@@ -11,8 +11,7 @@ from datetime import tzinfo
 from pathlib import Path
 
 from .model import SourceSpec, resolve_timezone
-from .sources import DEFAULT_MEMBERS, DEFAULT_SOURCES, SOURCE_KINDS
-from .sources import cammesa
+from .sources import DEFAULT_MEMBERS, DEFAULT_SOURCES
 from .sources.common import (
     DEFAULT_CUSTOMERS,
     DEFAULT_DEMAND_LEVELS,
@@ -97,6 +96,16 @@ def _names(value: object, label: str) -> tuple[str, ...]:
     return tuple(result)
 
 
+def _enabled(value: object, label: str, available: Mapping) -> tuple[str, ...]:
+    names = _names(value, label)
+    if not names:
+        return tuple(available)
+    unknown = [name for name in names if name not in available]
+    if unknown:
+        raise ValueError(f"unknown {label}: {', '.join(unknown)}")
+    return names
+
+
 def _bool(value: object, label: str) -> bool:
     if isinstance(value, bool):
         return value
@@ -162,69 +171,12 @@ def _customers(value: object, label: str) -> dict[str, int]:
     return result
 
 
-def _member_defs(value: object, label: str) -> dict[str, tuple[str, ...]]:
-    if not isinstance(value, Mapping):
-        raise ValueError(f"{label} must be an object")
-    result: dict[str, tuple[str, ...]] = {}
-    for raw_name, sources in value.items():
-        if not isinstance(raw_name, str):
-            raise ValueError(f"{label} names must be strings")
-        name = raw_name.strip().lower()
-        if not NAME_RE.fullmatch(name):
-            raise ValueError(f"invalid {label} name: {raw_name!r}")
-        result[name] = _names(sources, f"{label}.{name}.sources")
-    return result
-
-
-def _source_defs(value: object, label: str) -> dict[str, SourceSpec]:
-    if not isinstance(value, Mapping):
-        raise ValueError(f"{label} must be an object")
-    result: dict[str, SourceSpec] = {}
-    for raw_name, raw_spec in value.items():
-        if not isinstance(raw_name, str):
-            raise ValueError(f"{label} names must be strings")
-        name = raw_name.strip().lower()
-        if not NAME_RE.fullmatch(name):
-            raise ValueError(f"invalid {label} name: {raw_name!r}")
-        if not isinstance(raw_spec, Mapping):
-            raise ValueError(f"{label}.{name} must be an object")
-        base = DEFAULT_SOURCES.get(name)
-        kind = raw_spec.get("kind", base.kind if base else None)
-        if kind not in SOURCE_KINDS:
-            raise ValueError(f"invalid source kind for {name}: {kind!r}")
-        member = raw_spec.get("member", base.member if base else None)
-        if not isinstance(member, str) or not NAME_RE.fullmatch(member.lower()):
-            raise ValueError(f"{label}.{name}.member is required")
-        url = raw_spec.get("url", base.url if base else None)
-        if url is not None:
-            if not isinstance(url, str):
-                raise ValueError(f"{label}.{name}.url must be a string")
-            if not re.fullmatch(r"https?://[^\s]+", url, re.IGNORECASE):
-                raise ValueError(f"{label}.{name}.url must be an http(s) URL")
-        empresa = raw_spec.get("empresa", base.empresa if base else None)
-        if empresa is not None:
-            if not isinstance(empresa, str):
-                raise ValueError(f"{label}.{name}.empresa must be a string")
-            empresa = empresa.strip().upper()
-        region = raw_spec.get("region", base.region if base else None)
-        if region is not None:
-            region = _int(region, f"{label}.{name}.region", 1)
-        if kind == "enre_outages" and (not url or not empresa):
-            raise ValueError(f"{label}.{name} needs url and empresa")
-        if kind == "cammesa_demand":
-            if region is None:
-                raise ValueError(f"{label}.{name} needs region")
-            if url is None:
-                url = cammesa.url_for(region)
-        result[name] = SourceSpec(name, kind, member.lower(), url, empresa, region)
-    return result
-
-
 def load_config(argv: Sequence[str] | None = None) -> Config:
     parser = argparse.ArgumentParser(prog="tupa")
     parser.add_argument("members", nargs="*", metavar="MEMBER")
-    parser.add_argument("-m", "--member", "--source", dest="member_opt", action="append", default=[])
+    parser.add_argument("-m", "--member", dest="member_opt", action="append", default=[])
     parser.add_argument("--serve", action="store_true", default=None)
+    parser.add_argument("--once", action="store_true")
     parser.add_argument("--host", default=None)
     parser.add_argument("--port", default=None)
     parser.add_argument("--timeout", default=None)
@@ -233,6 +185,7 @@ def load_config(argv: Sequence[str] | None = None) -> Config:
     parser.add_argument("--indent", default=None)
     parser.add_argument("--config", default=None)
     parser.add_argument("--strict", action="store_true", default=None)
+    parser.add_argument("--nonstrict", action="store_true")
     parser.add_argument("--tz", default=None)
     parser.add_argument("--customers", default=None)
     parser.add_argument("--levels", default=None)
@@ -246,6 +199,17 @@ def load_config(argv: Sequence[str] | None = None) -> Config:
     strict_source = (
         args.strict if args.strict is not None else os.environ.get("TUPA_STRICT")
     )
+
+    def strict_from(loaded: Mapping[str, object]) -> bool:
+        if args.nonstrict:
+            return False
+        source = strict_source if strict_source is not None else loaded.get("strict", False)
+        try:
+            return _bool(source, "strict")
+        except (TypeError, ValueError) as exc:
+            fail(str(exc))
+        return False
+
     file_config: Mapping[str, object] = {}
     if config_path:
         path = Path(config_path)
@@ -255,8 +219,7 @@ def load_config(argv: Sequence[str] | None = None) -> Config:
             log.info("config file %s not found; using defaults", config_path)
             loaded = {}
         except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-            strict = _bool(strict_source, "strict") if strict_source is not None else False
-            if strict:
+            if strict_from({}):
                 log.error("cannot read JSON config %r: %s", config_path, exc)
                 fail(f"cannot read JSON config {config_path!r}: {exc}")
             log.warning(
@@ -264,9 +227,8 @@ def load_config(argv: Sequence[str] | None = None) -> Config:
             )
             loaded = {}
         if not isinstance(loaded, dict):
-            strict = _bool(strict_source, "strict") if strict_source is not None else False
             message = "JSON config must contain an object"
-            if strict:
+            if strict_from({}):
                 log.error("%s in %r", message, config_path)
                 fail(message)
             log.warning("%s in %r; using defaults", message, config_path)
@@ -274,29 +236,14 @@ def load_config(argv: Sequence[str] | None = None) -> Config:
         unknown = set(loaded) - CONFIG_KEYS
         if unknown:
             message = "unknown config keys: " + ", ".join(sorted(map(str, unknown)))
-            try:
-                candidate = (
-                    strict_source if strict_source is not None else loaded.get("strict", False)
-                )
-                strict = _bool(candidate, "strict")
-            except (TypeError, ValueError) as exc:
-                fail(str(exc))
-            if strict:
+            if strict_from(loaded):
                 log.error("%s in %r", message, config_path)
                 fail(message)
             log.warning("%s in %r; ignoring them", message, config_path)
-            loaded = {k: v for k, v in loaded.items() if k in CONFIG_KEYS}
+            loaded = {key: value for key, value in loaded.items() if key in CONFIG_KEYS}
         file_config = loaded
 
-    try:
-        strict = _bool(
-            strict_source
-            if strict_source is not None
-            else file_config.get("strict", False),
-            "strict",
-        )
-    except (TypeError, ValueError) as exc:
-        fail(str(exc))
+    strict = strict_from(file_config)
 
     def value(key: str, env_key: str, cli: object, default: object) -> object:
         if cli is not None:
@@ -308,39 +255,39 @@ def load_config(argv: Sequence[str] | None = None) -> Config:
         return default
 
     try:
-        raw_members = file_config.get("members", {})
-        raw_sources = file_config.get("sources", {})
-        member_defs = {**DEFAULT_MEMBERS, **_member_defs(raw_members, "members")}
-        source_defs = {**DEFAULT_SOURCES, **_source_defs(raw_sources, "sources")}
-        for member, source_names in list(member_defs.items()):
-            if not source_names:
-                member_defs[member] = tuple(
-                    name for name, spec in source_defs.items() if spec.member == member
-                )
-
-        for member, source_names in member_defs.items():
-            for source_name in source_names:
-                if source_name not in source_defs:
-                    raise ValueError(f"member {member!r} uses unknown source {source_name!r}")
-                if source_defs[source_name].member != member:
-                    raise ValueError(f"source {source_name!r} does not belong to {member!r}")
+        enabled_members = _enabled(
+            file_config.get("members", tuple(DEFAULT_MEMBERS)), "members", DEFAULT_MEMBERS
+        )
+        enabled_sources = _enabled(
+            file_config.get("sources", tuple(DEFAULT_SOURCES)), "sources", DEFAULT_SOURCES
+        )
+        member_set = set(enabled_members)
+        source_set = set(enabled_sources)
+        source_defs = {
+            name: spec for name, spec in DEFAULT_SOURCES.items() if name in source_set
+        }
+        member_sources = {
+            name: tuple(source for source in sources if source in source_set)
+            for name, sources in DEFAULT_MEMBERS.items()
+            if name in member_set
+        }
 
         cli_members = args.members + (args.member_opt or [])
-        env_members = os.environ.get("TUPA_MEMBERS") or os.environ.get("TUPA_SOURCES")
+        env_members = (os.environ.get("TUPA_MEMBERS") or "").strip()
         selected = _names(
             cli_members
             or env_members
             or file_config.get("selected_members")
-            or tuple(member_defs),
+            or tuple(member_sources),
             "members",
         )
-        if not selected:
-            selected = tuple(member_defs)
         for name in selected:
-            if name not in member_defs:
-                raise ValueError(f"unknown member: {name!r}")
+            if name not in member_sources:
+                raise ValueError(f"unknown or disabled member: {name!r}")
 
         serve = _bool(value("serve", "TUPA_SERVE", args.serve, False), "serve")
+        if args.once:
+            serve = False
         host = str(value("host", "TUPA_HOST", args.host, "127.0.0.1")).strip()
         if not host:
             raise ValueError("host must not be empty")
@@ -355,15 +302,6 @@ def load_config(argv: Sequence[str] | None = None) -> Config:
             **DEFAULT_CUSTOMERS,
             **_customers(value("customers", "TUPA_CUSTOMERS", args.customers, {}), "customers"),
         }
-        enre_members = {
-            spec.member for spec in source_defs.values() if spec.kind == "enre_outages"
-        }
-        missing_baselines = sorted(enre_members - set(customers))
-        if missing_baselines:
-            raise ValueError(
-                "members with enre_outages sources need a customer baseline: "
-                + ", ".join(missing_baselines)
-            )
         tz = resolve_timezone(value("tz", "TUPA_TZ", args.tz, None))
         levels = _levels(value("levels", "TUPA_LEVELS", args.levels, DEFAULT_LEVELS), "levels")
         demand_levels = _levels(
@@ -376,7 +314,7 @@ def load_config(argv: Sequence[str] | None = None) -> Config:
     return Config(
         members=selected,
         tz=tz,
-        member_sources=member_defs,
+        member_sources=member_sources,
         sources=source_defs,
         serve=serve,
         host=host,

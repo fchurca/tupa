@@ -5,7 +5,7 @@ from collections.abc import Mapping
 from datetime import datetime, time, timezone, tzinfo
 from email.utils import parsedate_to_datetime
 
-from ..model import Member, make_member, system_timezone
+from ..model import ART_TZ, Member, make_member, system_timezone
 from .common import (
     ACTIVE_KEYS,
     PLANNED_KEYS,
@@ -42,9 +42,12 @@ def _enre_timestamp(
     if match:
         hour, minute = int(match.group(1)), int(match.group(2))
         if 0 <= hour <= 23 and 0 <= minute <= 59:
-            return datetime.combine(
-                modified.date(), time(hour, minute), tzinfo=tz
-            ).isoformat(timespec="seconds")
+            art_date = modified.astimezone(ART_TZ).date()
+            return (
+                datetime.combine(art_date, time(hour, minute), tzinfo=ART_TZ)
+                .astimezone(tz)
+                .isoformat(timespec="seconds")
+            )
     return modified.isoformat(timespec="seconds")
 
 
@@ -66,7 +69,7 @@ def fetch_enre(
         deadline=deadline,
     )
     data = decode_js_data(text)
-    reported = str(data.get("empresa", "")).upper()
+    reported = str(data.get("empresa", "")).strip().upper()
     if reported != empresa:
         raise ValueError(
             f"{name}: unexpected empresa {reported!r}, expected {empresa!r}"

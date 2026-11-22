@@ -1,10 +1,9 @@
 import json
 import threading
 import unittest
+from http.client import HTTPConnection
 from http.server import ThreadingHTTPServer
 from unittest.mock import patch
-from urllib.error import HTTPError
-from urllib.request import urlopen
 
 from tupa.model import SourceSpec
 from tupa.server import Handler, Snapshot
@@ -18,10 +17,14 @@ class SnapshotTests(unittest.TestCase):
     def test_ttl_cache(self):
         values = iter([{"updated": "first"}, {"updated": "second"}])
         snapshot = Snapshot(60.0, lambda: next(values))
-        with patch("tupa.server.time.monotonic", side_effect=[0.0, 10.0, 61.0, 62.0]):
+        clock = [0.0]
+        with patch("tupa.server.time.monotonic", side_effect=lambda: clock[0]):
             self.assertEqual(snapshot.get()["updated"], "first")
+            clock[0] = 10.0
             self.assertEqual(snapshot.get()["updated"], "first")
+            clock[0] = 61.0
             self.assertEqual(snapshot.get()["updated"], "second")
+            clock[0] = 62.0
             self.assertEqual(snapshot.get()["updated"], "second")
 
     def test_stale_on_error(self):
@@ -34,10 +37,23 @@ class SnapshotTests(unittest.TestCase):
             return value
 
         snapshot = Snapshot(60.0, collector)
-        with patch("tupa.server.time.monotonic", side_effect=[0.0, 61.0, 62.0]):
+        clock = [0.0]
+        with (
+            patch("tupa.server.time.monotonic", side_effect=lambda: clock[0]),
+            patch("tupa.server.log"),
+        ):
             self.assertEqual(snapshot.get()["members"]["n"]["status"], "operational")
+            clock[0] = 61.0
             self.assertEqual(snapshot.get()["members"]["n"]["status"], "operational")
+            clock[0] = 62.0
             self.assertEqual(snapshot.get()["members"]["n"]["status"], "operational")
+
+    def test_first_failure_propagates(self):
+        def collector():
+            raise RuntimeError("down")
+
+        with patch("tupa.server.log"), self.assertRaises(RuntimeError):
+            Snapshot(60.0, collector).get()
 
 
 class HTTPTests(unittest.TestCase):
@@ -62,33 +78,48 @@ class HTTPTests(unittest.TestCase):
         self.server.server_close()
         self.thread.join(timeout=3)
 
+    def request(self, path, method="GET"):
+        connection = HTTPConnection("127.0.0.1", self.server.server_port, timeout=3)
+        connection.request(method, path)
+        reply = connection.getresponse()
+        body = reply.read()
+        headers = dict(reply.getheaders())
+        connection.close()
+        return reply.status, headers, body
+
     def test_html_root(self):
-        with urlopen(self.base + "/", timeout=3) as reply:
-            self.assertEqual(reply.status, 200)
-            self.assertEqual(reply.headers["Content-Type"], "text/html; charset=utf-8")
-            self.assertEqual(reply.headers["Cache-Control"], "max-age=60")
-            body = reply.read()
-            self.assertIn(b"<!doctype html>", body)
-            self.assertIn(b'<html lang="es-AR">', body)
-            self.assertIn(b"<h2>n</h2>", body)
-            self.assertIn("Operativo".encode(), body)
-            self.assertIn("verificá".encode(), body)
-            self.assertIn(b'href="/api"', body)
-            self.assertIn(b"CAMMESA Edenor (1077)", body)
-            self.assertNotIn(b"ENRE Edesur", body)
+        code, headers, body = self.request("/")
+        self.assertEqual(code, 200)
+        self.assertEqual(headers["Content-Type"], "text/html; charset=utf-8")
+        self.assertEqual(headers["Cache-Control"], "max-age=60")
+        self.assertIn(b"<!doctype html>", body)
+        self.assertIn(b'<html lang="es-AR">', body)
+        self.assertIn(b"<h2>n</h2>", body)
+        self.assertIn("Operativo".encode(), body)
+        self.assertIn("verificá".encode(), body)
+        self.assertIn(b'href="/api"', body)
+        self.assertIn(b"CAMMESA Edenor (1077)", body)
+        self.assertNotIn(b"ENRE Edesur", body)
+        self.assertIn(b"Content-Security-Policy", body)
+        self.assertIn(b"script-src 'sha256-", body)
 
     def test_api_endpoint(self):
-        with urlopen(self.base + "/api", timeout=3) as reply:
-            self.assertEqual(reply.status, 200)
-            self.assertEqual(
-                reply.headers["Content-Type"], "application/json; charset=utf-8"
-            )
-            self.assertEqual(reply.headers["Cache-Control"], "max-age=60")
-            payload = json.loads(reply.read())
-            self.assertEqual(payload["members"]["n"]["status"], "operational")
+        code, headers, body = self.request("/api")
+        self.assertEqual(code, 200)
+        self.assertEqual(headers["Content-Type"], "application/json; charset=utf-8")
+        self.assertEqual(headers["Cache-Control"], "max-age=60")
+        payload = json.loads(body)
+        self.assertEqual(payload["members"]["n"]["status"], "operational")
+
+    def test_head_has_no_body(self):
+        _, _, get_body = self.request("/api")
+        code, headers, body = self.request("/api", method="HEAD")
+        self.assertEqual(code, 200)
+        self.assertEqual(body, b"")
+        self.assertEqual(int(headers["Content-Length"]), len(get_body))
 
     def test_unknown_path_is_404(self):
         for path in ("/status", "/status.json", "/missing"):
-            with self.subTest(path=path), self.assertRaises(HTTPError) as caught:
-                urlopen(self.base + path, timeout=3)
-            self.assertEqual(caught.exception.code, 404)
+            with self.subTest(path=path):
+                code, _, _ = self.request(path)
+                self.assertEqual(code, 404)

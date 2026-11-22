@@ -5,35 +5,29 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone, tzinfo
-from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 STATUSES = frozenset({"operational", "warn", "high", "disaster", "unknown"})
 
 SEVERITY = {"operational": 0, "warn": 1, "high": 2, "disaster": 3, "unknown": -1}
 
-AR_TZ = timezone(timedelta(hours=-3))
+try:
+    ART_TZ: tzinfo = ZoneInfo("America/Argentina/Buenos_Aires")
+except ZoneInfoNotFoundError:
+    ART_TZ = timezone(timedelta(hours=-3))
+AR_TZ = ART_TZ
 UTC_TZ = timezone.utc
 _OFFSET_RE = re.compile(r"\A([+-])(\d{2}):?(\d{2})\Z")
 
 
 def system_timezone() -> tzinfo:
-    candidates: list[str] = []
     name = os.environ.get("TZ", "").strip().lstrip(":")
     if name:
-        candidates.append(name)
-    try:
-        localtime = str(Path("/etc/localtime").resolve())
-        if "/zoneinfo/" in localtime:
-            candidates.append(localtime.split("/zoneinfo/", 1)[1])
-    except OSError:
-        pass
-    for candidate in candidates:
         try:
-            return ZoneInfo(candidate)
+            return ZoneInfo(name)
         except (ZoneInfoNotFoundError, ValueError):
             pass
-    return datetime.now().astimezone().tzinfo or UTC_TZ
+    return ART_TZ
 
 
 def resolve_timezone(value: object = None) -> tzinfo:

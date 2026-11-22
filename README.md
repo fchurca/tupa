@@ -32,7 +32,10 @@ consumers are expected to know to select the members relevant to them. See
 `/` and JSON at `/api`. The dashboard sources modal shows only sources active in
 the running instance.
 
-Configuration: [config.md](config.md).
+Configuration: [config.md](config.md). Most users should not need to change
+anything; defaults are intended to work. Normally only the listening address and
+port (and occasionally the timezone, which defaults to Argentina Time) are
+deployment settings.
 
 ### Run with Docker (recommended)
 
@@ -96,10 +99,11 @@ A `member` carries a `status` (`operational`, `warn`, `high`,
 own `updated` timestamp and a `members` map keyed by member name. Timestamps
 are ISO 8601 / RFC 3339 strings. See the [CDDL schema](status.cddl).
 
-ENRE only publishes a time of day: TUPA pairs it with the file's HTTP
-`Last-Modified` date. Without that header, `updated` records when TUPA observed
-the data instead of assuming a date. All timestamps are normalized to the
-configured timezone (the system timezone by default).
+ENRE only publishes a time of day in Argentina Time (ART): TUPA pairs it with
+the file's HTTP `Last-Modified` date and converts it to the configured output
+timezone. Without that header, `updated` records when TUPA observed the data
+instead of assuming a date. All timestamps are normalized to the configured
+timezone (Argentina Time by default).
 
 Planned outages are outages: they use the same severity thresholds as any other
 outage.

@@ -7,22 +7,32 @@ come from three layers, in decreasing priority:
 2. `TUPA_*` environment variables;
 3. a JSON configuration file.
 
+**Most users should not need to change any configuration.** The defaults are
+intended to work out of the box. In deployments the usual settings are the
+listening address/port and, occasionally, the timezone (which defaults to
+Argentina Time). Timeout, TTL, severity thresholds,
+member/source enabling and strict validation are administrator-level controls:
+changing them without a specific reason can produce misleading status or make
+the service harder to operate.
+
 When running with Docker, environment variables are lifted from a `.env` file in
 the project directory. Copy the [`stack.env`](stack.env) template to `.env` and
-edit it; every supported variable is listed there with its default commented out.
-Compose also forwards `TZ` and sets `RES_OPTIONS=timeout:1 attempts:1` to shorten
-any resolver work done outside TUPA's bounded DNS child.
+edit it; every supported variable is listed there with its default commented
+out. Compose interpolates `TZ` from the shell or `.env`; it does not discover the
+host timezone, and uses UTC when `TZ` is unset.
 
-Values not supplied anywhere use the defaults below. Defaults are intended to be
-sane and sufficient for normal use; configuration is optional. The JSON file is
-selected with `--config PATH` or `TUPA_CONFIG`.
+Values not supplied anywhere use the defaults below. Configuration is optional.
+The JSON file is selected with `--config PATH` or `TUPA_CONFIG`.
 
 If no config file is found, TUPA logs an info message and uses defaults. If a
 config file exists but cannot be read/parsed, or contains an invalid top-level
 shape or unknown top-level keys, TUPA logs a warning and uses defaults while
 ignoring the invalid part. With `--strict` / `TUPA_STRICT=true` / `"strict":
 true`, missing config files still log info and use defaults, but existing
-unloadable/invalid config files log an error and cause startup failure.
+unloadable/invalid config files log an error and cause startup failure. Use
+`--nonstrict` to force strict mode off regardless of environment or JSON;
+`--once` forces one-shot JSON output regardless of `serve` settings. Invalid
+values, including an invalid boolean for `strict`, exit with status 2.
 
 ## Quick start
 
@@ -65,38 +75,35 @@ python3 -m tupa --serve
 
 ## Members and sources
 
-A **member** is a system whose status appears in the output. A **source** is one
-datasource that contributes evidence about a member. JSON defines them
-separately:
+A **member** is a built-in system whose status appears in the output. A
+**source** is one built-in datasource that contributes evidence about a member.
+Configuration may only enable or disable built-ins; custom members, custom
+sources, source kinds, endpoints, `empresa` values and regions are not
+configurable.
 
 ```json
 {
   "selected_members": ["edenor"],
-  "members": {
-    "edenor": ["enre_edenor", "cammesa_edenor"]
-  },
-  "sources": {
-    "enre_edenor": {
-      "kind": "enre_outages",
-      "member": "edenor",
-      "url": "https://www.enre.gov.ar/paginacorte/js/data_EDN.js",
-      "empresa": "EDENOR"
-    },
-    "cammesa_edenor": {
-      "kind": "cammesa_demand",
-      "member": "edenor",
-      "region": 1077
-    }
-  }
+  "members": ["edenor", "edesur"],
+  "sources": [
+    "enre_edenor",
+    "enre_edesur",
+    "cammesa_edenor",
+    "cammesa_edesur"
+  ]
 }
 ```
 
-Built-in members and sources are always available; JSON entries override or
-extend them by name. A member's status is the **worst known** status of its
-sources, ignoring `unknown` unless every source is unknown. Each output comment
-is prefixed with the source name.
+- `members` enables built-in members; `sources` enables built-in sources.
+- `selected_members` chooses which enabled members to query (CLI `MEMBER...`,
+  `-m`/`--member` and `TUPA_MEMBERS` do the same).
+- Empty lists mean "all built-ins". Disabling a source removes it from its
+  member; a member with no enabled sources reports `unknown`.
+- Selecting a member that is not enabled is a configuration error.
+- Custom definitions or URL overrides are rejected. Built-in endpoints are
+  fixed by TUPA.
 
-Default members and sources:
+Built-in members and sources:
 
 | Member | Sources |
 | --- | --- |
@@ -105,20 +112,26 @@ Default members and sources:
 
 Source kinds:
 
-- `enre_outages`: requires `url` and `empresa`; classifies by affected customers.
-  Every member using this kind needs a matching entry in `customers` (defaults
-  cover `edenor`, `edesur` and `edelap`); startup fails with an explanatory
-  message otherwise.
-- `cammesa_demand`: requires `region`; classifies by demand deficit against the
-  lower of yesterday and the same weekday last week. `url` may override the
-  CAMMESA endpoint.
+- `enre_outages`: classifies by affected customers from ENRE's generated
+  `data_EDN.js` / `data_EDS.js`. Severity thresholds come from `customers` and
+  `levels` for the built-in member; every built-in ENRE member has a default
+  baseline.
+- `cammesa_demand`: classifies by demand deficit against the lower of yesterday
+  and the same weekday last week, using fixed regional CAMMESA endpoints.
+
+A member's status is the **worst known** status of its sources, ignoring
+`unknown` unless every source is unknown. Each output comment is prefixed with
+the source name.
 
 ## Options
 
 | Meaning | CLI | Environment | JSON key | Default |
 | --- | --- | --- | --- | --- |
-| Members to query | `MEMBER...`, `-m`, `--member`, `--source` | `TUPA_MEMBERS`, `TUPA_SOURCES` | `selected_members` | all members |
+| Members to query | `MEMBER...`, `-m`, `--member` | `TUPA_MEMBERS` | `selected_members` | all enabled members |
+| Enabled built-in members | — | — | `members` | all built-ins |
+| Enabled built-in sources | — | — | `sources` | all built-ins |
 | Run the HTTP daemon | `--serve` | `TUPA_SERVE` | `serve` | `false` |
+| Force one-shot mode | `--once` | — | — | off |
 | Listen address | `--host ADDR` | `TUPA_HOST` | `host` | `127.0.0.1` |
 | Listen port | `--port PORT` | `TUPA_PORT` | `port` | `8000` |
 | Upstream timeout (seconds) | `--timeout SECONDS` | `TUPA_TIMEOUT` | `timeout` | `10` |
@@ -127,55 +140,57 @@ Source kinds:
 | JSON indentation (0-8 spaces) | `--indent SPACES` | `TUPA_INDENT` | `indent` | `2` |
 | JSON file path | `--config PATH` | `TUPA_CONFIG` | — | none |
 | Strict config validation | `--strict` | `TUPA_STRICT` | `strict` | `false` |
-| Output timezone | `--tz NAME` | `TUPA_TZ` | `tz` | system timezone |
+| Force non-strict mode | `--nonstrict` | — | — | off |
+| Output timezone | `--tz NAME` | `TUPA_TZ` | `tz` | Argentina Time (ART) |
 | Customer baselines | `--customers NAME=COUNT,...` | `TUPA_CUSTOMERS` | `customers` | see below |
 | Severity fractions | `--levels WARN,HIGH,DISASTER` | `TUPA_LEVELS` | `levels` | `0.0001,0.005,0.05` |
 | Demand-deficit fractions | `--demand-levels WARN,HIGH,DISASTER` | `TUPA_DEMAND_LEVELS` | `demand_levels` | `0.15,0.30,0.50` |
 
 Notes:
 
-- Member and source names are case-insensitive and normalized to lowercase;
-  they may contain letters, digits, underscores and hyphens.
-- Repeated names are de-duplicated. Unknown members, unknown sources, and
-  sources assigned to the wrong member are rejected.
-- An empty selection means "unspecified" and falls back to all available
-  entries: `selected_members: []`, empty `TUPA_MEMBERS`/`TUPA_SOURCES`, an empty
-  CLI selection, a member with an empty source list, and `sources: {}` all
-  select all members, all sources of that member, and all default sources
-  respectively. Empty values are skipped in precedence order, so an empty
-  `TUPA_MEMBERS` does not mask a non-empty `TUPA_SOURCES`.
-- `TUPA_MEMBERS` takes precedence over the legacy alias `TUPA_SOURCES`; both
-  override `selected_members` from JSON.
-- Source URLs must be absolute `http://` or `https://` URLs.
+- Names are case-insensitive, normalized to lowercase, and may contain letters,
+  digits, underscores and hyphens. Repeated names are de-duplicated.
+- Values are trimmed. Empty selections fall back to all available entries:
+  `selected_members: []`, empty or whitespace-only `TUPA_MEMBERS`, an empty CLI
+  selection, `members: []` and `sources: []`.
+- Unknown or disabled members, and unknown built-in source names, are rejected.
+- `--once` wins over `--serve`, `TUPA_SERVE` and `"serve": true`; `--nonstrict`
+  wins over `--strict`, `TUPA_STRICT` and `"strict": true`.
 - Booleans accept `1`, `true`, `yes`, `on` and `0`, `false`, `no`, `off`
   (case-insensitive).
 - `port` is 1-65535, `timeout` is at least 0.1, `ttl` is at least 0 (zero
   disables caching), and `indent` is 0-8. `format` only supports `json`.
-- `timeout` is the overall deadline for a collection and the initial socket
-  timeout for each upstream fetch. When the deadline expires, TUPA closes the
-  active sockets of unfinished fetches, marks them `unknown` with a Spanish
-  comment like
-  `cammesa_edenor no respondió a tiempo después de 10 segundos`, and returns.
-  Fetch workers are daemons, so they cannot keep the CLI process alive. DNS
-  lookups run in short-lived child processes and are bounded by the remaining
-  collection deadline; numeric hosts bypass the child. Redirects follow urllib
-  defaults: at most 10 distinct URLs and 4 repeats of the same URL.
+- `timeout` is the overall deadline for a collection and the socket timeout
+  budget for each upstream fetch. The socket budget is recomputed from the
+  absolute deadline after DNS and connection setup, and checked while reading
+  the body, so a slow upstream cannot extend the collection indefinitely.
+  Pending fetches have their sockets closed; workers are daemon threads joined
+  briefly on shutdown. Redirects follow urllib defaults: at most 10 distinct
+  URLs and 4 repeats of the same URL. Redirects to loopback, private,
+  link-local or reserved addresses are rejected unless the original URL itself
+  used such an address.
 - Invalid values exit with status 2 and an explanatory message.
 
 ## Timezone
 
 All timestamps in the output are normalized to one timezone. By default TUPA
-uses the system timezone (`TZ` or `/etc/localtime`, falling back to the local
-offset). Set `tz` / `TUPA_TZ` / `--tz` to override it with an IANA name such as
-`America/Argentina/Buenos_Aires`, a fixed offset such as `-03:00`, or `UTC`.
-`system` and `local` explicitly select the system default. The container image
-includes `tzdata`, and Compose forwards the host `TZ` value (default `UTC`).
+uses Argentina Time (ART, `America/Argentina/Buenos_Aires`). TUPA does not probe
+`/etc/localtime`: set `TZ` or `tz` / `TUPA_TZ` / `--tz` to override the default
+with an IANA name such as `America/Argentina/Buenos_Aires`, a fixed offset such
+as `-03:00`, or `UTC`. An unset or unresolvable `TZ` falls back to ART; an
+invalid explicit TUPA setting is a configuration error. `system` and `local`
+select the same default. The container image includes `tzdata`. ENRE reports
+only a local time of day in ART; TUPA combines it with the file's HTTP
+`Last-Modified` date and converts it to the configured output timezone. Without
+that header, `updated` records when TUPA observed the data instead of assuming
+a date.
 
 ## HTTP endpoints
 
-In `--serve` mode, `/` renders a standalone HTML dashboard and `/api` returns
-the same status as JSON. The former `/status` and `/status.json` paths are not
-served.
+In `--serve` mode, `/` renders a standalone HTML dashboard with a strict
+Content-Security-Policy and no external scripts, and `/api` returns the same
+status as JSON. `HEAD` is supported for both. The former `/status` and
+`/status.json` paths are not served.
 
 ## ENRE severity thresholds
 
@@ -184,7 +199,7 @@ service, using rough published customer/household counts as baselines rather
 than population figures. Two settings control it:
 
 - `customers`: `name=count` pairs. Supplied pairs are **merged** with the
-  defaults, so you can override a single member.
+  defaults, so you can override a single built-in member.
 - `levels`: exactly three increasing fractions greater than 0 and at most 1,
   corresponding to `warn`, `high` and `disaster`.
 
@@ -201,16 +216,17 @@ Default baselines and resulting thresholds:
 | Edelap | 400,000 | 40 | 2,000 | 20,000 |
 
 Edelap is kept as a built-in baseline for compatibility even though it has no
-implemented source yet.
+implemented source.
 
 ## CAMMESA severity thresholds
 
 CAMMESA's regional endpoint returns 5-minute demand in MW for today, yesterday
 and the same weekday last week. TUPA uses the lower of the two reference series
-to reduce weather-related false positives, picks the sample closest to the
-median deficit of the latest three comparable samples, and classifies that
-sample's deficit with `demand_levels`. The comment reports the same displayed
-values used for the classification.
+to reduce weather-related false positives. Rows are ordered by reported time; a
+zero demand reading is valid (a total collapse is `disaster`). TUPA picks the
+sample closest to the median deficit of the latest three comparable samples,
+and classifies that sample's deficit with `demand_levels`. The comment reports
+the same displayed values used for the classification.
 
 The default fractions are 15% / 30% / 50%:
 

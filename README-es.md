@@ -33,7 +33,10 @@ archivo para servirla; se espera que cada consumidor sepa seleccionar los
 miembros relevantes. Véase [example.json](example.json). En modo demonio, TUPA
 sirve un panel HTML en `/` y JSON en `/api`.
 
-Configuración: [config.md](config.md) (en inglés).
+Configuración: [config.md](config.md) (en inglés). La mayoría de los usuarios no
+necesita cambiar nada: los valores por defecto están pensados para funcionar.
+Normalmente solo se ajustan la dirección y el puerto de escucha (y a veces la
+zona horaria, que por defecto es la de Argentina).
 
 ### Ejecutar desde Docker (recomendado)
 
@@ -99,9 +102,11 @@ visuales. Un `system` tiene su propia marca de tiempo `updated` y un mapa
 `members` indexado por nombre de miembro. Las marcas de tiempo son cadenas
 ISO 8601 / RFC 3339. Consulte el [esquema CDDL](status.cddl).
 
-ENRE solo publica una hora del día: TUPA la combina con la fecha HTTP
-`Last-Modified` del archivo. Sin esa cabecera, `updated` registra cuándo TUPA
-observó el dato, sin suponer una fecha.
+ENRE solo publica una hora del día en hora de Argentina (ART): TUPA la combina
+con la fecha HTTP `Last-Modified` del archivo y la convierte a la zona horaria
+de salida configurada. Sin esa cabecera, `updated` registra cuándo TUPA observó
+el dato, sin suponer una fecha. Todas las marcas de tiempo se normalizan a la
+zona horaria configurada (por defecto, hora de Argentina).
 
 Los cortes programados son cortes: usan los mismos umbrales de severidad que
 cualquier otro corte.

@@ -28,7 +28,7 @@ class ConfigTests(unittest.TestCase):
         return contextlib.redirect_stderr(io.StringIO())
 
     def test_defaults(self):
-        with self.clean_env(), patch("sys.argv", ["tupa"]):
+        with self.clean_env():
             config = load_config([])
         self.assertEqual(config.members, ("edenor", "edesur"))
         self.assertEqual(config.member_sources["edenor"], ("cammesa_edenor", "enre_edenor"))
@@ -36,6 +36,7 @@ class ConfigTests(unittest.TestCase):
         self.assertFalse(config.serve)
         self.assertEqual((config.host, config.port), ("127.0.0.1", 8000))
         self.assertEqual((config.timeout, config.ttl, config.indent), (10.0, 60.0, 2))
+        self.assertEqual(str(config.tz), "America/Argentina/Buenos_Aires")
         self.assertFalse(config.strict)
         self.assertEqual(config.customers["edenor"], 3_400_000)
         self.assertEqual(config.levels, (0.0001, 0.005, 0.05))
@@ -46,11 +47,7 @@ class ConfigTests(unittest.TestCase):
 
     def test_precedence_args_over_env_over_json(self):
         path = self.write_json({"selected_members": ["edenor"], "host": "json.example", "port": 9000})
-        env = {
-            "TUPA_MEMBERS": "edesur",
-            "TUPA_HOST": "env.example",
-            "TUPA_PORT": "9100",
-        }
+        env = {"TUPA_MEMBERS": "edesur", "TUPA_HOST": "env.example", "TUPA_PORT": "9100"}
         argv = ["--config", path, "--host", "args.example", "--member", "edenor"]
         with self.clean_env(**env):
             config = load_config(argv)
@@ -58,16 +55,11 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.host, "args.example")
         self.assertEqual(config.port, 9100)
 
-    def test_members_env_overrides_json_and_sources_alias(self):
+    def test_members_env_overrides_json(self):
         path = self.write_json({"selected_members": ["edenor"]})
-        with self.clean_env(TUPA_CONFIG=path, TUPA_SOURCES="edesur"):
+        with self.clean_env(TUPA_CONFIG=path, TUPA_MEMBERS="edesur"):
             config = load_config([])
         self.assertEqual(config.members, ("edesur",))
-
-        env = {"TUPA_CONFIG": path, "TUPA_MEMBERS": "edenor", "TUPA_SOURCES": "edesur"}
-        with self.clean_env(**env):
-            config = load_config([])
-        self.assertEqual(config.members, ("edenor",))
 
     def test_env_over_json_and_serve_flag(self):
         path = self.write_json({"selected_members": ["edenor"], "host": "json.example", "serve": False})
@@ -78,6 +70,19 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.host, "env.example")
         self.assertTrue(config.serve)
 
+    def test_once_forces_serve_false(self):
+        path = self.write_json({"serve": True})
+        with self.clean_env(TUPA_CONFIG=path, TUPA_SERVE="true"):
+            config = load_config(["--serve", "--once"])
+        self.assertFalse(config.serve)
+
+    def test_nonstrict_forces_strict_false(self):
+        path = self.write_json({"strict": True, "nope": 1})
+        with self.clean_env(TUPA_CONFIG=path, TUPA_STRICT="true"):
+            config = load_config(["--strict", "--nonstrict"])
+        self.assertFalse(config.strict)
+        self.assertEqual(config.ttl, 60.0)
+
     def test_json_only(self):
         path = self.write_json({"selected_members": ["edenor", "edesur"], "ttl": 15})
         with self.clean_env():
@@ -85,27 +90,61 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.members, ("edenor", "edesur"))
         self.assertEqual(config.ttl, 15.0)
 
-    def test_json_members_and_sources(self):
-        path = self.write_json(
-            {
-                "members": {"edenor": ["enre_edenor", "cammesa_custom"]},
-                "sources": {
-                    "cammesa_custom": {
-                        "kind": "cammesa_demand",
-                        "member": "edenor",
-                        "region": 9999,
-                    }
-                },
-            }
-        )
+    def test_members_and_sources_are_enable_lists(self):
+        path = self.write_json({"members": ["edenor"], "sources": ["enre_edenor"]})
         with self.clean_env(TUPA_CONFIG=path):
             config = load_config([])
-        self.assertEqual(config.member_sources["edenor"], ("enre_edenor", "cammesa_custom"))
-        self.assertEqual(config.sources["cammesa_custom"].region, 9999)
-        self.assertIn("id_region=9999", config.sources["cammesa_custom"].url)
+        self.assertEqual(config.members, ("edenor",))
+        self.assertEqual(set(config.sources), {"enre_edenor"})
+        self.assertEqual(config.member_sources, {"edenor": ("enre_edenor",)})
+        self.assertEqual(
+            config.sources["enre_edenor"].url,
+            "https://www.enre.gov.ar/paginacorte/js/data_EDN.js",
+        )
+
+    def test_disabling_source_removes_it_from_members(self):
+        path = self.write_json({"sources": ["cammesa_edenor", "cammesa_edesur", "enre_edesur"]})
+        with self.clean_env(TUPA_CONFIG=path):
+            config = load_config([])
+        self.assertEqual(config.member_sources["edenor"], ("cammesa_edenor",))
+        self.assertEqual(config.member_sources["edesur"], ("cammesa_edesur", "enre_edesur"))
+
+    def test_custom_source_definitions_are_rejected(self):
+        path = self.write_json(
+            {
+                "sources": {
+                    "enre_custom": {
+                        "kind": "enre_outages",
+                        "member": "edenor",
+                        "url": "https://example.test/data.js",
+                        "empresa": "EDENOR",
+                    }
+                }
+            }
+        )
+        with self.clean_env(TUPA_CONFIG=path), self.quiet_error(), self.assertRaises(SystemExit) as ctx:
+            load_config([])
+        self.assertEqual(ctx.exception.code, 2)
+
+    def test_unknown_enabled_member_or_source_exits_two(self):
+        for key, value in (("members", ["nope"]), ("sources", ["nope"])):
+            with (
+                self.subTest(key=key),
+                self.clean_env(),
+                self.quiet_error(),
+                self.assertRaises(SystemExit) as ctx,
+            ):
+                load_config(["--config", self.write_json({key: value})])
+            self.assertEqual(ctx.exception.code, 2)
+
+    def test_selecting_disabled_member_exits_two(self):
+        path = self.write_json({"members": ["edenor"], "selected_members": ["edesur"]})
+        with self.clean_env(TUPA_CONFIG=path), self.quiet_error(), self.assertRaises(SystemExit) as ctx:
+            load_config([])
+        self.assertEqual(ctx.exception.code, 2)
 
     def test_customers_merge_with_defaults(self):
-        with self.clean_env(), patch("sys.argv", ["tupa"]):
+        with self.clean_env():
             config = load_config(["--customers", "edenor=3500000"])
         self.assertEqual(config.customers["edenor"], 3_500_000)
         self.assertEqual(config.customers["edesur"], 2_700_000)
@@ -168,60 +207,32 @@ class ConfigTests(unittest.TestCase):
             config = load_config([])
         self.assertEqual(config.members, ("edenor", "edesur"))
 
-        with self.clean_env(TUPA_MEMBERS="", TUPA_SOURCES=""):
-            config = load_config([])
-        self.assertEqual(config.members, ("edenor", "edesur"))
+        for value in ("", "   "):
+            with self.subTest(value=value), self.clean_env(TUPA_MEMBERS=value):
+                config = load_config([])
+            self.assertEqual(config.members, ("edenor", "edesur"))
 
-        with self.clean_env(TUPA_MEMBERS="   "):
-            config = load_config([])
-        self.assertEqual(config.members, ("edenor", "edesur"))
-
-        with self.clean_env(TUPA_MEMBERS="", TUPA_SOURCES="edenor"):
-            config = load_config([])
-        self.assertEqual(config.members, ("edenor",))
-
-    def test_empty_member_sources_uses_all_sources_of_that_member(self):
-        path = self.write_json({"members": {"edenor": []}})
+    def test_empty_enable_lists_mean_all(self):
+        path = self.write_json({"members": [], "sources": []})
         with self.clean_env(TUPA_CONFIG=path):
             config = load_config([])
-        self.assertCountEqual(
-            config.member_sources["edenor"], ("cammesa_edenor", "enre_edenor")
-        )
-
-    def test_enre_member_needs_customer_baseline(self):
-        data = {
-            "selected_members": ["transener"],
-            "members": {"transener": ["enre_custom"]},
-            "sources": {
-                "enre_custom": {
-                    "kind": "enre_outages",
-                    "member": "transener",
-                    "url": "https://example.test/data.js",
-                    "empresa": "TRANSENER",
-                }
-            },
-        }
-        path = self.write_json(data)
-        with self.clean_env(TUPA_CONFIG=path), self.quiet_error(), self.assertRaises(SystemExit) as ctx:
-            load_config([])
-        self.assertEqual(ctx.exception.code, 2)
-
-        data["customers"] = {"transener": 1000}
-        path = self.write_json(data)
-        with self.clean_env(TUPA_CONFIG=path):
-            config = load_config([])
-        self.assertEqual(config.thresholds["transener"].warn, 1)
+        self.assertEqual(set(config.members), {"edenor", "edesur"})
+        self.assertEqual(len(config.sources), 4)
 
     def test_timezone_precedence_and_default(self):
-        with self.clean_env(TZ="America/Argentina/Buenos_Aires"):
+        with self.clean_env():
             config = load_config([])
         self.assertEqual(str(config.tz), "America/Argentina/Buenos_Aires")
+
+        with self.clean_env(TZ="UTC"):
+            config = load_config([])
+        self.assertEqual(str(config.tz), "UTC")
 
         with self.clean_env(TUPA_TZ="-03:00"):
             config = load_config([])
         self.assertEqual(config.tz.utcoffset(None), timedelta(hours=-3))
 
-        with self.clean_env(TUPA_TZ="UTC"), patch("sys.argv", ["tupa"]):
+        with self.clean_env(TUPA_TZ="UTC"):
             config = load_config(["--tz", "+02:00"])
         self.assertEqual(config.tz.utcoffset(None), timedelta(hours=2))
 
@@ -235,34 +246,6 @@ class ConfigTests(unittest.TestCase):
             config = load_config([])
         self.assertFalse(config.strict)
         self.assertEqual(config.ttl, 60.0)
-
-    def test_source_url_must_be_http(self):
-        path = self.write_json({"sources": {"enre_edenor": {"url": "javascript:alert(1)"}}})
-        with self.clean_env(TUPA_CONFIG=path), self.quiet_error(), self.assertRaises(SystemExit) as ctx:
-            load_config([])
-        self.assertEqual(ctx.exception.code, 2)
-
-    def test_unknown_member_exits_two(self):
-        with self.clean_env(), self.quiet_error(), self.assertRaises(SystemExit) as ctx:
-            load_config(["nope"])
-        self.assertEqual(ctx.exception.code, 2)
-
-    def test_source_assigned_to_wrong_member_exits_two(self):
-        path = self.write_json(
-            {
-                "members": {"edenor": ["cammesa_custom"]},
-                "sources": {
-                    "cammesa_custom": {
-                        "kind": "cammesa_demand",
-                        "member": "edesur",
-                        "region": 1,
-                    }
-                },
-            }
-        )
-        with self.clean_env(TUPA_CONFIG=path), self.quiet_error(), self.assertRaises(SystemExit) as ctx:
-            load_config([])
-        self.assertEqual(ctx.exception.code, 2)
 
     def test_invalid_number_exits_two(self):
         with self.clean_env(), self.quiet_error(), self.assertRaises(SystemExit) as ctx:
@@ -303,6 +286,13 @@ class ConfigTests(unittest.TestCase):
             load_config(["--config", str(self.json), "--strict"])
         self.assertEqual(ctx.exception.code, 2)
 
+    def test_invalid_strict_with_invalid_json_exits_two(self):
+        self.json.write_text("not json", encoding="utf-8")
+        with self.clean_env(TUPA_CONFIG=str(self.json), TUPA_STRICT="maybe"), self.quiet_error():
+            with self.assertRaises(SystemExit) as ctx:
+                load_config([])
+        self.assertEqual(ctx.exception.code, 2)
+
     def test_unknown_json_key_warns_and_ignores(self):
         path = self.write_json({"nope": 1, "ttl": 15})
         with self.clean_env(), self.assertLogs("tupa.config", level="WARNING") as logs:
@@ -323,8 +313,9 @@ class ConfigTests(unittest.TestCase):
 
     def test_strict_from_env_and_json(self):
         self.json.write_text("not json", encoding="utf-8")
-        with self.clean_env(TUPA_CONFIG=str(self.json), TUPA_STRICT="true"), self.quiet_error(), self.assertRaises(SystemExit):
-            load_config([])
+        with self.clean_env(TUPA_CONFIG=str(self.json), TUPA_STRICT="true"), self.quiet_error():
+            with self.assertRaises(SystemExit):
+                load_config([])
         path = self.write_json({"strict": True})
         with self.clean_env(TUPA_CONFIG=path):
             config = load_config([])
@@ -332,3 +323,8 @@ class ConfigTests(unittest.TestCase):
         with self.clean_env(TUPA_STRICT="true"):
             config = load_config([])
         self.assertTrue(config.strict)
+
+    def test_unknown_member_exits_two(self):
+        with self.clean_env(), self.quiet_error(), self.assertRaises(SystemExit) as ctx:
+            load_config(["nope"])
+        self.assertEqual(ctx.exception.code, 2)

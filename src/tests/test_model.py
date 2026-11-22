@@ -1,6 +1,8 @@
+import os
 import re
 import unittest
 from datetime import timedelta
+from unittest.mock import patch
 
 from tupa.model import (
     AR_TZ,
@@ -81,6 +83,14 @@ class ModelTests(unittest.TestCase):
         self.assertEqual(str(resolve_timezone("system")), str(system_timezone()))
         with self.assertRaises(ValueError):
             resolve_timezone("Mars/Olympus")
+
+    def test_system_timezone_uses_tz_only(self):
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(str(system_timezone()), "America/Argentina/Buenos_Aires")
+        with patch.dict(os.environ, {"TZ": "UTC"}, clear=True):
+            self.assertEqual(str(system_timezone()), "UTC")
+        with patch.dict(os.environ, {"TZ": "Mars/Olympus"}, clear=True):
+            self.assertEqual(str(system_timezone()), "America/Argentina/Buenos_Aires")
 
     def test_aggregate_normalizes_mixed_offsets(self):
         results = [

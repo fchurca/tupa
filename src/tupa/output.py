@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import hashlib
 import html
 import json
 import re
@@ -290,11 +292,19 @@ def _sources_table(specs: Sequence[SourceSpec] | None) -> str:
     )
 
 _SCRIPT = """    <script>
-      const sourcesButton = document.getElementById("sources-button");
-      const sourcesDialog = document.getElementById("sources-dialog");
-      sourcesButton.addEventListener("click", () => sourcesDialog.showModal());
-      sourcesDialog.addEventListener("close", () => sourcesButton.focus());
-    </script>"""
+       const sourcesButton = document.getElementById("sources-button");
+       const sourcesDialog = document.getElementById("sources-dialog");
+       sourcesButton.addEventListener("click", () => sourcesDialog.showModal());
+       sourcesDialog.addEventListener("close", () => sourcesButton.focus());
+     </script>"""
+
+_SCRIPT_HASH = "sha256-" + base64.b64encode(
+    hashlib.sha256(_SCRIPT.encode("utf-8")).digest()
+).decode("ascii")
+_CSP = (
+    "default-src 'none'; style-src 'unsafe-inline'; "
+    f"script-src '{_SCRIPT_HASH}'; connect-src 'none'; base-uri 'none'"
+)
 
 
 def _escape(value: object) -> str:
@@ -356,6 +366,7 @@ def render_html(status: dict, sources: Sequence[SourceSpec] | None = None) -> by
         "<head>\n"
         '  <meta charset="utf-8">\n'
         '  <meta name="viewport" content="width=device-width, initial-scale=1">\n'
+        f'  <meta http-equiv="Content-Security-Policy" content="{_CSP}">\n'
         "  <title>TUPA⚡: Telemetría Unificada de Potencia Argentina</title>\n"
         f"{_STYLE}\n"
         "</head>\n"

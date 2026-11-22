@@ -54,6 +54,18 @@ class CommonTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             decode_js_data("nothing here")
 
+    def test_parses_js_escapes_and_exponents(self):
+        data = decode_js_data(
+            r'var data = {"hex": "a\x41b", "nl": "one\ntwo", "exp": 1e3, "frac": .5}'
+        )
+        self.assertEqual(data, {"hex": "aAb", "nl": "one\ntwo", "exp": 1000.0, "frac": 0.5})
+
+    def test_rejects_excessive_nesting(self):
+        depth = 100
+        text = "var data = " + "[" * depth + "]" * depth
+        with self.assertRaisesRegex(ValueError, "nesting"):
+            decode_js_data(text)
+
     def test_legacy_context_keeps_verification(self):
         context = legacy_tls_context()
         self.assertIsInstance(context, ssl.SSLContext)
@@ -64,6 +76,9 @@ class CommonTests(unittest.TestCase):
     def test_parse_count(self):
         self.assertEqual(parse_count("3.505.956"), 3505956)
         self.assertEqual(parse_count("1,234"), 1234)
+        self.assertEqual(parse_count("1.500"), 1500)
+        self.assertEqual(parse_count("1.5"), 1)
+        self.assertEqual(parse_count("1,5"), 1)
         self.assertEqual(parse_count(138), 138)
         self.assertEqual(parse_count(138.5), 138)
         self.assertIsNone(parse_count(-1))

@@ -15,7 +15,10 @@ from .sources.common import (
     DEFAULT_DEMAND_THRESHOLDS,
     DemandThresholds,
     Thresholds,
-    cancel_thread,
+    begin_fetch,
+    cancel_fetch,
+    clear_fetch_token,
+    set_fetch_token,
 )
 
 log = logging.getLogger(__name__)
@@ -25,10 +28,12 @@ MAX_WORKERS = 16
 
 class _DaemonPool:
     def __init__(self, max_workers: int):
-        self._tasks: queue.Queue[tuple[Future, object, tuple, dict] | None] = queue.Queue()
+        self._tasks: queue.Queue[tuple[Future, object, object, tuple, dict] | None] = (
+            queue.Queue()
+        )
         self._threads: list[threading.Thread] = []
         self._lock = threading.Lock()
-        self._owners: dict[Future, int] = {}
+        self._tokens: dict[Future, object] = {}
         for index in range(max_workers):
             thread = threading.Thread(
                 target=self._worker,
@@ -43,33 +48,37 @@ class _DaemonPool:
             item = self._tasks.get()
             if item is None:
                 return
-            future, fn, args, kwargs = item
+            future, token, fn, args, kwargs = item
             if future.set_running_or_notify_cancel():
-                with self._lock:
-                    self._owners[future] = threading.get_ident()
+                set_fetch_token(token)
                 try:
                     future.set_result(fn(*args, **kwargs))
                 except BaseException as exc:
                     future.set_exception(exc)
                 finally:
+                    clear_fetch_token()
                     with self._lock:
-                        self._owners.pop(future, None)
+                        self._tokens.pop(future, None)
 
     def submit(self, fn, *args, **kwargs) -> Future:
         future: Future = Future()
-        self._tasks.put((future, fn, args, kwargs))
+        token = object()
+        with self._lock:
+            self._tokens[future] = token
+        begin_fetch(token)
+        self._tasks.put((future, token, fn, args, kwargs))
         return future
 
-    def cancel_owner(self, future: Future) -> bool | None:
+    def cancel_future(self, future: Future) -> bool:
         with self._lock:
-            ident = self._owners.pop(future, None)
-        if ident is None:
-            return None
-        return cancel_thread(ident)
+            token = self._tokens.get(future)
+        return cancel_fetch(token) if token is not None else False
 
     def shutdown(self) -> None:
         for _ in self._threads:
             self._tasks.put(None)
+        for thread in self._threads:
+            thread.join(timeout=0.05)
 
 
 def collect(
@@ -134,8 +143,8 @@ def collect(
         for future in pending:
             future.cancel()
             member, source_id = futures[future]
-            if pool is not None and pool.cancel_owner(future) is False:
-                log.warning("source %s timed out before a socket was opened", source_id)
+            if pool is not None and not pool.cancel_future(future):
+                log.warning("source %s had no open socket to cancel", source_id)
             log.warning("source %s timed out after %s seconds", source_id, timeout)
             groups[member].append(
                 (
@@ -149,7 +158,7 @@ def collect(
     finally:
         if pool is not None:
             for future in futures:
-                pool.cancel_owner(future)
+                pool.cancel_future(future)
             pool.shutdown()
 
     resolved = {

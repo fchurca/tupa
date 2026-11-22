@@ -14,7 +14,15 @@ from collections.abc import Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import lru_cache
-from urllib.request import Request, urlopen
+from urllib.error import HTTPError
+from urllib.parse import urlsplit
+from urllib.request import (
+    HTTPHandler,
+    HTTPSHandler,
+    HTTPRedirectHandler,
+    Request,
+    build_opener,
+)
 
 from ..version import get_version
 
@@ -50,36 +58,68 @@ class FetchTimeout(TimeoutError):
 
 
 _registry_lock = threading.Lock()
-_sockets: dict[int, list[socket.socket]] = {}
-_cancelled: set[int] = set()
+_sockets: dict[object, list[socket.socket]] = {}
+_cancelled: set[object] = set()
+_fetch_local = threading.local()
 
 
-def register_socket(sock: socket.socket) -> None:
-    ident = threading.get_ident()
+def begin_fetch(token: object) -> None:
     with _registry_lock:
-        _sockets.setdefault(ident, []).append(sock)
+        _sockets.setdefault(token, [])
 
 
-def unregister_socket(sock: socket.socket) -> None:
-    ident = threading.get_ident()
+def set_fetch_token(token: object) -> None:
+    _fetch_local.token = token
+    _fetch_local.socket = None
+
+
+def clear_fetch_token() -> None:
+    _fetch_local.token = None
+    _fetch_local.socket = None
+
+
+def _current_token() -> object:
+    token = getattr(_fetch_local, "token", None)
+    if token is None:
+        token = object()
+        begin_fetch(token)
+        _fetch_local.token = token
+    return token
+
+
+def register_socket(sock: socket.socket, token: object | None = None) -> None:
+    key = token if token is not None else _current_token()
     with _registry_lock:
-        socks = _sockets.get(ident)
+        socks = _sockets.setdefault(key, [])
+        if all(existing is not sock for existing in socks):
+            socks.append(sock)
+
+
+def unregister_socket(sock: socket.socket, token: object | None = None) -> None:
+    key = token if token is not None else _current_token()
+    with _registry_lock:
+        socks = _sockets.get(key)
         if socks is None:
             return
-        try:
-            socks.remove(sock)
-        except ValueError:
-            pass
+        for index, existing in enumerate(socks):
+            if existing is sock:
+                socks.pop(index)
+                break
         if not socks:
-            _sockets.pop(ident, None)
+            _sockets.pop(key, None)
 
 
-def cancel_thread(ident: int) -> bool:
+def unregister_fetch(token: object) -> None:
     with _registry_lock:
-        socks = _sockets.pop(ident, None)
+        _sockets.pop(token, None)
+
+
+def cancel_fetch(token: object) -> bool:
+    with _registry_lock:
+        socks = _sockets.pop(token, None)
         if socks is None:
             return False
-        _cancelled.add(ident)
+        _cancelled.add(token)
     for sock in socks:
         try:
             sock.shutdown(socket.SHUT_RDWR)
@@ -92,14 +132,16 @@ def cancel_thread(ident: int) -> bool:
     return True
 
 
-def clear_cancellation() -> None:
+def clear_cancellation(token: object | None = None) -> None:
+    key = token if token is not None else _current_token()
     with _registry_lock:
-        _cancelled.discard(threading.get_ident())
+        _cancelled.discard(key)
 
 
-def is_cancelled() -> bool:
+def is_cancelled(token: object | None = None) -> bool:
+    key = token if token is not None else _current_token()
     with _registry_lock:
-        return threading.get_ident() in _cancelled
+        return key in _cancelled
 
 
 def active_sockets() -> int:
@@ -179,15 +221,147 @@ def _bounded_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
 
 @contextmanager
 def dns_deadline(deadline: float | None):
-    previous = getattr(_dns_local, "deadline", None)
+    previous_dns = getattr(_dns_local, "deadline", None)
+    previous_fetch = getattr(_fetch_local, "deadline", None)
     _dns_local.deadline = deadline
+    _fetch_local.deadline = deadline
     try:
         yield
     finally:
-        _dns_local.deadline = previous
+        _dns_local.deadline = previous_dns
+        _fetch_local.deadline = previous_fetch
 
 
 socket.getaddrinfo = _bounded_getaddrinfo
+
+
+def _remaining(deadline: float | None, fallback: float | None = None) -> float | None:
+    if deadline is None:
+        return fallback
+    value = max(0.001, deadline - time.monotonic())
+    return value if fallback is None else min(fallback, value)
+
+
+def _connect_with_deadline(address, timeout: float | None, source_address, **kwargs) -> socket.socket:
+    host, port = address
+    infos = socket.getaddrinfo(host, port, 0, socket.SOCK_STREAM)
+    last_error: OSError | None = None
+    for family, socktype, proto, _, sockaddr in infos:
+        sock: socket.socket | None = None
+        try:
+            sock = socket.socket(family, socktype, proto)
+            sock.settimeout(_remaining(getattr(_fetch_local, "deadline", None), timeout))
+            if source_address is not None:
+                sock.bind(source_address)
+            sock.connect(sockaddr)
+            return sock
+        except OSError as exc:
+            last_error = exc
+            if sock is not None:
+                sock.close()
+    if last_error is not None:
+        raise last_error
+    raise socket.gaierror(socket.EAI_AGAIN, "no address for host")
+
+
+class _DeadlineHTTPConnection(http.client.HTTPConnection):
+    def _create_connection(self, address, timeout=None, source_address=None, **kwargs):
+        deadline = getattr(_fetch_local, "deadline", None)
+        if deadline is None:
+            sock = socket.create_connection(address, timeout, source_address, **kwargs)
+        else:
+            sock = _connect_with_deadline(address, timeout, source_address, **kwargs)
+        register_socket(sock)
+        if deadline is not None:
+            sock.settimeout(_remaining(deadline))
+        _fetch_local.socket = sock
+        return sock
+
+
+class _DeadlineHTTPSConnection(http.client.HTTPSConnection):
+    def _create_connection(self, address, timeout=None, source_address=None, **kwargs):
+        deadline = getattr(_fetch_local, "deadline", None)
+        if deadline is None:
+            sock = socket.create_connection(address, timeout, source_address, **kwargs)
+        else:
+            sock = _connect_with_deadline(address, timeout, source_address, **kwargs)
+        register_socket(sock)
+        if deadline is not None:
+            sock.settimeout(_remaining(deadline))
+        _fetch_local.socket = sock
+        return sock
+
+    def connect(self) -> None:
+        super().connect()
+        register_socket(self.sock)
+        deadline = getattr(_fetch_local, "deadline", None)
+        if deadline is not None:
+            self.sock.settimeout(_remaining(deadline))
+        _fetch_local.socket = self.sock
+
+
+class _DeadlineHTTPHandler(HTTPHandler):
+    def http_open(self, req):
+        return self.do_open(_DeadlineHTTPConnection, req)
+
+
+class _DeadlineHTTPSHandler(HTTPSHandler):
+    def __init__(self, context: ssl.SSLContext | None = None):
+        super().__init__(context=context)
+        self.context = context
+
+    def https_open(self, req):
+        return self.do_open(_DeadlineHTTPSConnection, req, context=self.context)
+
+
+def _is_private_target(host: str) -> bool:
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        try:
+            infos = socket.getaddrinfo(host, None)
+        except OSError:
+            return True
+        if not infos:
+            return True
+        return any(
+            ipaddress.ip_address(info[4][0]).is_private
+            or ipaddress.ip_address(info[4][0]).is_loopback
+            or ipaddress.ip_address(info[4][0]).is_link_local
+            or ipaddress.ip_address(info[4][0]).is_reserved
+            for info in infos
+        )
+    return (
+        address.is_private
+        or address.is_loopback
+        or address.is_link_local
+        or address.is_reserved
+    )
+
+
+class _RestrictedRedirectHandler(HTTPRedirectHandler):
+    def __init__(self, allow_private: bool = False):
+        super().__init__()
+        self.allow_private = allow_private
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        target = urlsplit(newurl)
+        if target.scheme.lower() not in ("http", "https") or (
+            not self.allow_private and _is_private_target(target.hostname or "")
+        ):
+            raise HTTPError(req.full_url, code, "unsafe redirect target", headers, fp)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def urlopen(request: Request, *, timeout: float, context: ssl.SSLContext | None = None):
+    initial = urlsplit(request.full_url)
+    allow_private = bool(initial.hostname and _is_private_target(initial.hostname))
+    opener = build_opener(
+        _RestrictedRedirectHandler(allow_private),
+        _DeadlineHTTPHandler(),
+        _DeadlineHTTPSHandler(context=context),
+    )
+    return opener.open(request, timeout=timeout)
 
 
 def _response_socket(response: object) -> socket.socket | None:
@@ -206,33 +380,56 @@ def fetch_content(
     max_bytes: int = MAX_RESPONSE_BYTES,
     deadline: float | None = None,
 ) -> tuple[str, Mapping[str, str]]:
-    clear_cancellation()
+    token = _current_token()
+    if is_cancelled(token):
+        raise FetchTimeout("fetch cancelled before it started")
+    remaining = _remaining(deadline, timeout)
+    assert remaining is not None
     request = Request(url, headers={"User-Agent": USER_AGENT})
-    remaining = (
-        timeout
-        if deadline is None
-        else min(timeout, max(0.001, deadline - time.monotonic()))
-    )
-    sock: socket.socket | None = None
+    previous_socket = getattr(_fetch_local, "socket", None)
+    _fetch_local.socket = None
     try:
         with dns_deadline(deadline):
             with urlopen(request, timeout=remaining, context=tls_context) as response:
-                sock = _response_socket(response)
+                sock = _response_socket(response) or getattr(_fetch_local, "socket", None)
                 if sock is not None:
-                    register_socket(sock)
+                    register_socket(sock, token)
+                    if deadline is not None:
+                        sock.settimeout(_remaining(deadline, remaining))
                 try:
-                    raw = response.read(max_bytes + 1)
+                    stream = getattr(response, "fp", None)
+                    read_chunk = getattr(stream, "read1", None)
+                    if read_chunk is None:
+                        raw = response.read(max_bytes + 1)
+                    else:
+                        chunks: list[bytes] = []
+                        total = 0
+                        while total <= max_bytes:
+                            if deadline is not None and time.monotonic() >= deadline:
+                                raise FetchTimeout(
+                                    f"fetch deadline after {timeout:g} seconds"
+                                )
+                            if is_cancelled(token):
+                                raise FetchTimeout(
+                                    f"fetch cancelled after {timeout:g} seconds"
+                                )
+                            chunk = read_chunk(min(8192, max_bytes + 1 - total))
+                            if not chunk:
+                                break
+                            chunks.append(chunk)
+                            total += len(chunk)
+                        raw = b"".join(chunks)
                 except (OSError, http.client.IncompleteRead) as exc:
-                    if is_cancelled():
+                    if is_cancelled(token):
                         raise FetchTimeout(
-                            f"fetch cancelled after {remaining:g} seconds"
+                            f"fetch cancelled after {timeout:g} seconds"
                         ) from exc
                     raise
                 headers: Mapping[str, str] = getattr(response, "headers", {})
     finally:
-        if sock is not None:
-            unregister_socket(sock)
-        clear_cancellation()
+        unregister_fetch(token)
+        clear_cancellation(token)
+        _fetch_local.socket = previous_socket
     if len(raw) > max_bytes:
         raise ValueError(f"response exceeds {max_bytes} bytes")
     for encoding in ("utf-8", "latin-1"):
@@ -256,6 +453,8 @@ def fetch_text(
 
 
 class _JSLiteral:
+    MAX_DEPTH = 64
+
     def __init__(self, text: str):
         self.text = text
         self.pos = 0
@@ -280,7 +479,9 @@ class _JSLiteral:
             raise ValueError(f"expected {char!r} at offset {self.pos}")
         self.pos += 1
 
-    def _value(self):
+    def _value(self, depth: int = 0):
+        if depth > self.MAX_DEPTH:
+            raise ValueError(f"data nesting exceeds {self.MAX_DEPTH} levels")
         self._skip()
         if self.pos >= len(self.text):
             raise ValueError("unexpected end of data")
@@ -288,10 +489,10 @@ class _JSLiteral:
         if char in ("'", '"'):
             return self._string()
         if char == "[":
-            return self._array()
+            return self._array(depth + 1)
         if char == "{":
-            return self._object()
-        if char.isdigit() or char == "-":
+            return self._object(depth + 1)
+        if char.isdigit() or char in "-+.":
             return self._number()
         for word, value in (
             ("true", True),
@@ -320,22 +521,39 @@ class _JSLiteral:
                 self.pos += 1
                 if esc == "u":
                     out.append(self._unicode_char())
+                elif esc == "x":
+                    out.append(chr(self._hex(2)))
+                elif esc in "\r\n":
+                    if esc == "\r" and self.text[self.pos : self.pos + 1] == "\n":
+                        self.pos += 1
                 else:
                     out.append(
-                        {"n": "\n", "r": "\r", "t": "\t", '"': '"', "'": "'", "\\": "\\"}.get(
-                            esc, esc
-                        )
+                        {
+                            "b": "\b",
+                            "f": "\f",
+                            "n": "\n",
+                            "r": "\r",
+                            "t": "\t",
+                            "v": "\v",
+                            "0": "\0",
+                        }.get(esc, esc)
                     )
             else:
                 out.append(char)
         raise ValueError("unterminated string")
 
-    def _hex4(self) -> int:
-        digits = self.text[self.pos : self.pos + 4]
-        if len(digits) != 4 or not re.fullmatch(r"[0-9A-Fa-f]{4}", digits):
-            raise ValueError(f"invalid unicode escape at offset {self.pos - 2}")
-        self.pos += 4
+    def _hex(self, size: int) -> int:
+        digits = self.text[self.pos : self.pos + size]
+        if len(digits) != size or not re.fullmatch(rf"[0-9A-Fa-f]{{{size}}}", digits):
+            raise ValueError(f"invalid hex escape at offset {self.pos}")
+        self.pos += size
         return int(digits, 16)
+
+    def _hex4(self) -> int:
+        try:
+            return self._hex(4)
+        except ValueError:
+            raise ValueError(f"invalid unicode escape at offset {self.pos - 2}") from None
 
     def _unicode_char(self) -> str:
         code = self._hex4()
@@ -355,14 +573,17 @@ class _JSLiteral:
         return chr(code)
 
     def _number(self):
-        match = re.match(r"-?\d+(?:\.\d+)?", self.text[self.pos :])
+        match = re.match(
+            r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?",
+            self.text[self.pos :],
+        )
         if not match:
             raise ValueError(f"invalid number at offset {self.pos}")
         self.pos += match.end()
         text = match.group(0)
-        return float(text) if "." in text else int(text)
+        return float(text) if any(marker in text for marker in ".eE") else int(text)
 
-    def _array(self) -> list:
+    def _array(self, depth: int) -> list:
         self._expect("[")
         out = []
         while True:
@@ -370,7 +591,7 @@ class _JSLiteral:
             if self.pos < len(self.text) and self.text[self.pos] == "]":
                 self.pos += 1
                 return out
-            out.append(self._value())
+            out.append(self._value(depth))
             self._skip()
             if self.pos < len(self.text) and self.text[self.pos] == ",":
                 self.pos += 1
@@ -378,7 +599,7 @@ class _JSLiteral:
             self._expect("]")
             return out
 
-    def _object(self) -> dict:
+    def _object(self, depth: int) -> dict:
         self._expect("{")
         out = {}
         while True:
@@ -397,7 +618,7 @@ class _JSLiteral:
                 key = match.group(0)
                 self.pos += match.end()
             self._expect(":")
-            out[key] = self._value()
+            out[key] = self._value(depth)
             self._skip()
             if self.pos < len(self.text) and self.text[self.pos] == ",":
                 self.pos += 1
@@ -417,10 +638,18 @@ def parse_count(value: object) -> int | None:
         return value if value >= 0 else None
     if isinstance(value, float):
         return int(value) if math.isfinite(value) and value >= 0 else None
-    text = str(value).strip().replace(".", "").replace(",", "")
-    if not re.fullmatch(r"\d+", text):
+    text = re.sub(r"\s+", "", str(value))
+    if not text or not re.fullmatch(r"[\d.,]+", text):
         return None
-    return int(text)
+    separators = list(re.finditer(r"[.,]", text))
+    if not separators:
+        return int(text)
+    tail = text[separators[-1].end() :]
+    if len(tail) == 3 and tail.isdigit():
+        cleaned = text.replace(".", "").replace(",", "")
+    else:
+        cleaned = text[: separators[-1].start()].replace(".", "").replace(",", "")
+    return int(cleaned) if cleaned.isdigit() else None
 
 
 def count_rows(data: dict, keys) -> int:
