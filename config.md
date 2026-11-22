@@ -7,6 +7,10 @@ come from three layers, in decreasing priority:
 2. `TUPA_*` environment variables;
 3. a JSON configuration file.
 
+When running with Docker, environment variables are lifted from a `.env` file in
+the project directory. Copy the [`stack.env`](stack.env) template to `.env` and
+edit it; every supported variable is listed there with its default commented out.
+
 Values not supplied anywhere use the defaults below. The JSON file is selected
 with `--config PATH` or `TUPA_CONFIG`; a missing file falls back to defaults.
 Invalid JSON, unreadable files, and unknown top-level keys are errors.

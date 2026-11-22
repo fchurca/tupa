@@ -35,6 +35,16 @@ sirve un panel HTML en `/` y JSON en `/api`.
 
 Configuración: [config.md](config.md) (en inglés).
 
+### Ejecutar desde Docker (recomendado)
+
+```sh
+docker compose up --build --detach
+```
+
+`stack.env` es una plantilla con todas las opciones admitidas y sus valores por
+defecto comentados. Opcionalmente, copiala a `.env`, descomentá y modificá los
+valores que quieras cambiar antes de iniciar el contenedor.
+
 ### Ejecutar desde el código fuente
 
 Desde `src/`:
@@ -69,6 +79,8 @@ El trabajo comienza con las siguientes fuentes:
 > automatizable y usa CDL para control cruzado cuando otras fuentes no están
 > disponibles. Las propias fuentes de CDL se muestran en el
 > [diagrama](diagram.pu).
+>
+> En pocas palabras: tenemos CDL en casa.
 
 ### Topología
 

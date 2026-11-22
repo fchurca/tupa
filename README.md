@@ -33,6 +33,16 @@ consumers are expected to know to select the members relevant to them. See
 
 Configuration: [config.md](config.md).
 
+### Run with Docker (recommended)
+
+```sh
+docker compose up --build --detach
+```
+
+`stack.env` is a template of all supported settings with their defaults commented
+out. Optionally copy it to `.env`, then uncomment and change any values you need
+before starting the container.
+
 ### Run from source
 
 From `src/`:
@@ -66,6 +76,8 @@ Work begins with the following sources:
 > not a replacement: it adds scriptable status output and uses CDL for
 > cross-checking when other sources are unavailable. CDL's own data feeds are
 > shown in the [diagram](diagram.pu).
+>
+> In short: we have CDL at home.
 
 ### Topology
 
