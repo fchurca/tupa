@@ -41,6 +41,18 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(status["members"]["zeta"]["status"], "operational")
         self.assertEqual(seen, [3.5])
 
+    def test_collect_maps_timeout_to_spanish_unknown(self):
+        def slow(spec, **kwargs):
+            raise TimeoutError()
+
+        sources = {"slow": spec("slow", "edenor")}
+        members = {"edenor": ("slow",)}
+        with patch("tupa.core.fetch_source", side_effect=slow):
+            status = core.collect(None, timeout=10.0, sources=sources, member_sources=members)
+        member = status["members"]["edenor"]
+        self.assertEqual(member["status"], "unknown")
+        self.assertIn("slow no respondió a tiempo después de 10 segundos", member["comment"])
+
     def test_collect_honours_selected_members(self):
         calls = []
 

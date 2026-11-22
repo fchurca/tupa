@@ -3,8 +3,9 @@ from __future__ import annotations
 import html
 import json
 from collections import Counter
+from collections.abc import Mapping, Sequence
 
-from .model import STATUSES
+from .model import STATUSES, SourceSpec
 from .version import get_version
 
 STATUS_ORDER = ("operational", "warn", "high", "disaster", "unknown")
@@ -230,62 +231,62 @@ _STYLE = """    <style>
 _CAMMESA_DOCS = "https://cammesaweb.cammesa.com/informes-y-estadisticas/"
 _ENRE_DOCS = "https://www.enre.gov.ar/mapacortes/index.html"
 
-_SOURCE_ROWS = (
-    (
+_SOURCE_INFO: dict[str, tuple[str, str, str]] = {
+    "enre_edenor": ("ENRE Edenor", "https://www.enre.gov.ar/paginacorte/js/data_EDN.js", _ENRE_DOCS),
+    "enre_edesur": ("ENRE Edesur", "https://www.enre.gov.ar/paginacorte/js/data_EDS.js", _ENRE_DOCS),
+    "cammesa_edenor": (
         "CAMMESA Edenor (1077)",
         "https://api.cammesa.com/demanda-svc/demanda/ObtieneDemandaYTemperaturaRegion?id_region=1077",
         _CAMMESA_DOCS,
     ),
-    (
+    "cammesa_edesur": (
         "CAMMESA Edesur (1078)",
         "https://api.cammesa.com/demanda-svc/demanda/ObtieneDemandaYTemperaturaRegion?id_region=1078",
         _CAMMESA_DOCS,
     ),
-    (
-        "ENRE Edenor",
-        "https://www.enre.gov.ar/paginacorte/js/data_EDN.js",
-        _ENRE_DOCS,
-    ),
-    (
-        "ENRE Edesur",
-        "https://www.enre.gov.ar/paginacorte/js/data_EDS.js",
-        _ENRE_DOCS,
-    ),
-    ("SADI", "https://cammesaweb.cammesa.com/", _CAMMESA_DOCS),
-    ("CAMMESA", "https://cammesaweb.cammesa.com/", _CAMMESA_DOCS),
-    ("Transener", "https://cammesaweb.cammesa.com/", "https://www.enre.gov.ar/"),
-    ("SACME", "https://test.sacme.com.ar/", "https://www.sacme.com.ar/about-us/"),
-    (
-        "Edenor",
-        "https://www.enre.gov.ar/paginacorte/tabla_cortes_edenor.html",
-        _ENRE_DOCS,
-    ),
-    (
-        "Edesur",
-        "https://www.enre.gov.ar/paginacorte/tabla_cortes_edesur.html",
-        _ENRE_DOCS,
-    ),
-    ("Edelap", "https://oceba.gba.gov.ar/", "https://oceba.gba.gov.ar/"),
-    (
-        "CortesDeLuz.com.ar (CDL)",
-        "https://live.cortesdeluz.com.ar/current.json",
-        "https://cortesdeluz.com.ar/openapi.json",
-    ),
-)
+}
 
-_SOURCES_TABLE = (
-    "      <table>\n"
-    "        <thead><tr><th>Nombre</th><th>API</th><th>Documentación</th></tr></thead>\n"
-    "        <tbody>\n"
-    + "".join(
-        f'          <tr><td>{name}</td>'
-        f'<td><a href="{api}" target="_blank" rel="noreferrer">API</a></td>'
-        f'<td><a href="{docs}" target="_blank" rel="noreferrer">Documentación</a></td></tr>\n'
-        for name, api, docs in _SOURCE_ROWS
+
+def _source_rows(specs: Sequence[SourceSpec] | None) -> list[tuple[str, str, str]]:
+    if specs is None:
+        return [row for row in _SOURCE_INFO.values()]
+    rows: list[tuple[str, str, str]] = []
+    seen: set[str] = set()
+    for spec in specs:
+        if spec.name in seen:
+            continue
+        seen.add(spec.name)
+        info = _SOURCE_INFO.get(spec.name)
+        if info is not None:
+            name, api, docs = info
+            if spec.url:
+                api = spec.url
+            rows.append((name, api, docs))
+            continue
+        api = spec.url or ""
+        docs = _CAMMESA_DOCS if spec.kind == "cammesa_demand" else _ENRE_DOCS
+        rows.append((spec.name, api, docs))
+    return rows
+
+
+def _sources_table(specs: Sequence[SourceSpec] | None) -> str:
+    rows = _source_rows(specs)
+    body = "".join(
+        f'          <tr><td>{_escape(name)}</td>'
+        f'<td><a href="{_escape(api)}" target="_blank" rel="noreferrer">{_escape(api or "—")}</a></td>'
+        f'<td><a href="{_escape(docs)}" target="_blank" rel="noreferrer">Documentación</a></td></tr>\n'
+        for name, api, docs in rows
     )
-    + "        </tbody>\n"
-    "      </table>\n"
-)
+    if not body:
+        body = '          <tr><td colspan="3">Sin fuentes activas.</td></tr>\n'
+    return (
+        "      <table>\n"
+        "        <thead><tr><th>Nombre</th><th>API</th><th>Documentación</th></tr></thead>\n"
+        "        <tbody>\n"
+        f"{body}"
+        "        </tbody>\n"
+        "      </table>\n"
+    )
 
 _SCRIPT = """    <script>
       const sourcesButton = document.getElementById("sources-button");
@@ -308,7 +309,7 @@ def render(status: dict, *, indent: int | None = 2) -> bytes:
     return (json.dumps(status, ensure_ascii=False, indent=indent) + "\n").encode("utf-8")
 
 
-def render_html(status: dict) -> bytes:
+def render_html(status: dict, sources: Sequence[SourceSpec] | None = None) -> bytes:
     members = status.get("members", {})
     states = [_state(member.get("status", "unknown")) for member in members.values()]
     counts = Counter(states)
@@ -379,7 +380,7 @@ def render_html(status: dict) -> bytes:
         '      <form method="dialog"><button class="dialog-ok" value="OK">OK</button></form>\n'
         '    </div>\n'
         '    <div class="table-scroll">\n'
-        f"{_SOURCES_TABLE}"
+        f"{_sources_table(sources)}"
         '    </div>\n'
         '  </dialog>\n'
         f"{_SCRIPT}\n"

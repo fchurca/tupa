@@ -11,9 +11,16 @@ When running with Docker, environment variables are lifted from a `.env` file in
 the project directory. Copy the [`stack.env`](stack.env) template to `.env` and
 edit it; every supported variable is listed there with its default commented out.
 
-Values not supplied anywhere use the defaults below. The JSON file is selected
-with `--config PATH` or `TUPA_CONFIG`; a missing file falls back to defaults.
-Invalid JSON, unreadable files, and unknown top-level keys are errors.
+Values not supplied anywhere use the defaults below. Defaults are intended to be
+sane and sufficient for normal use; configuration is optional. The JSON file is
+selected with `--config PATH` or `TUPA_CONFIG`.
+
+If no config file is found, TUPA logs an info message and uses defaults. If a
+config file exists but cannot be read/parsed, or contains an invalid top-level
+shape or unknown top-level keys, TUPA logs a warning and uses defaults while
+ignoring the invalid part. With `--strict` / `TUPA_STRICT=true` / `"strict":
+true`, missing config files still log info and use defaults, but existing
+unloadable/invalid config files log an error and cause startup failure.
 
 ## Quick start
 
@@ -113,6 +120,7 @@ Source kinds:
 | Output format | `--format json` | `TUPA_FORMAT` | `format` | `json` |
 | JSON indentation (0-8 spaces) | `--indent SPACES` | `TUPA_INDENT` | `indent` | `2` |
 | JSON file path | `--config PATH` | `TUPA_CONFIG` | — | none |
+| Strict config validation | `--strict` | `TUPA_STRICT` | `strict` | `false` |
 | Customer baselines | `--customers NAME=COUNT,...` | `TUPA_CUSTOMERS` | `customers` | see below |
 | Severity fractions | `--levels WARN,HIGH,DISASTER` | `TUPA_LEVELS` | `levels` | `0.0001,0.005,0.05` |
 | Demand-deficit fractions | `--demand-levels WARN,HIGH,DISASTER` | `TUPA_DEMAND_LEVELS` | `demand_levels` | `0.15,0.30,0.50` |
@@ -129,6 +137,9 @@ Notes:
   (case-insensitive).
 - `port` is 1-65535, `timeout` is at least 0.1, `ttl` is at least 0 (zero
   disables caching), and `indent` is 0-8. `format` only supports `json`.
+- `timeout` applies per upstream source fetch. If a source does not respond in
+  time, TUPA marks it `unknown` with a Spanish comment like
+  `cammesa_edenor no respondió a tiempo después de 10 segundos`.
 - Invalid values exit with status 2 and an explanatory message.
 
 ## HTTP endpoints

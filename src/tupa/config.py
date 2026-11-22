@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import re
 from collections.abc import Mapping, Sequence
@@ -21,6 +22,8 @@ from .sources.common import (
     thresholds_from,
 )
 
+log = logging.getLogger(__name__)
+
 CONFIG_KEYS = frozenset(
     {
         "selected_members",
@@ -36,6 +39,7 @@ CONFIG_KEYS = frozenset(
         "customers",
         "levels",
         "demand_levels",
+        "strict",
     }
 )
 NAME_RE = re.compile(r"[a-z0-9][a-z0-9_-]*\Z")
@@ -56,6 +60,7 @@ class Config:
     format: str
     indent: int
     config_path: str | None
+    strict: bool
     customers: Mapping[str, int]
     levels: tuple[float, float, float]
     demand_levels: tuple[float, float, float]
@@ -221,6 +226,7 @@ def load_config(argv: Sequence[str] | None = None) -> Config:
     parser.add_argument("--format", default=None)
     parser.add_argument("--indent", default=None)
     parser.add_argument("--config", default=None)
+    parser.add_argument("--strict", action="store_true", default=None)
     parser.add_argument("--customers", default=None)
     parser.add_argument("--levels", default=None)
     parser.add_argument("--demand-levels", default=None)
@@ -230,21 +236,58 @@ def load_config(argv: Sequence[str] | None = None) -> Config:
         parser.error(message)
 
     config_path = args.config or os.environ.get("TUPA_CONFIG")
+    strict_source = (
+        args.strict if args.strict is not None else os.environ.get("TUPA_STRICT")
+    )
     file_config: Mapping[str, object] = {}
     if config_path:
         path = Path(config_path)
         try:
             loaded = json.loads(path.read_text(encoding="utf-8"))
         except FileNotFoundError:
+            log.info("config file %s not found; using defaults", config_path)
             loaded = {}
         except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-            fail(f"cannot read JSON config {config_path!r}: {exc}")
+            strict = _bool(strict_source, "strict") if strict_source is not None else False
+            if strict:
+                log.error("cannot read JSON config %r: %s", config_path, exc)
+                fail(f"cannot read JSON config {config_path!r}: {exc}")
+            log.warning(
+                "cannot read JSON config %r: %s; using defaults", config_path, exc
+            )
+            loaded = {}
         if not isinstance(loaded, dict):
-            fail("JSON config must contain an object")
+            strict = _bool(strict_source, "strict") if strict_source is not None else False
+            message = "JSON config must contain an object"
+            if strict:
+                log.error("%s in %r", message, config_path)
+                fail(message)
+            log.warning("%s in %r; using defaults", message, config_path)
+            loaded = {}
         unknown = set(loaded) - CONFIG_KEYS
         if unknown:
-            fail("unknown config keys: " + ", ".join(sorted(map(str, unknown))))
+            message = "unknown config keys: " + ", ".join(sorted(map(str, unknown)))
+            strict = (
+                _bool(strict_source, "strict")
+                if strict_source is not None
+                else bool(loaded.get("strict", False))
+            )
+            if strict:
+                log.error("%s in %r", message, config_path)
+                fail(message)
+            log.warning("%s in %r; ignoring them", message, config_path)
+            loaded = {k: v for k, v in loaded.items() if k in CONFIG_KEYS}
         file_config = loaded
+
+    try:
+        strict = _bool(
+            strict_source
+            if strict_source is not None
+            else file_config.get("strict", False),
+            "strict",
+        )
+    except (TypeError, ValueError) as exc:
+        fail(str(exc))
 
     def value(key: str, env_key: str, cli: object, default: object) -> object:
         if cli is not None:
@@ -317,6 +360,7 @@ def load_config(argv: Sequence[str] | None = None) -> Config:
         format=output_format,
         indent=indent,
         config_path=config_path,
+        strict=strict,
         customers=customers,
         levels=levels,
         demand_levels=demand_levels,

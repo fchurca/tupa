@@ -2,6 +2,7 @@ import unittest
 from importlib.metadata import PackageNotFoundError
 from unittest.mock import patch
 
+from tupa.model import SourceSpec
 from tupa.output import render, render_html
 from tupa.version import get_version
 
@@ -38,7 +39,17 @@ class OutputTests(unittest.TestCase):
         self.assertIn(f'class="version">v{get_version()}'.encode(), payload)
 
     def test_render_html_sources_dialog(self):
-        payload = render_html({"updated": "now", "members": {}})
+        sources = [
+            SourceSpec("cammesa_edenor", "cammesa_demand", "edenor", region=1077),
+            SourceSpec(
+                "enre_edenor",
+                "enre_outages",
+                "edenor",
+                url="https://www.enre.gov.ar/paginacorte/js/data_EDN.js",
+                empresa="EDENOR",
+            ),
+        ]
+        payload = render_html({"updated": "now", "members": {}}, sources=sources)
         self.assertIn(b'id="sources-button"', payload)
         self.assertIn("Lista de fuentes".encode(), payload)
         self.assertIn(b'id="sources-dialog"', payload)
@@ -49,35 +60,15 @@ class OutputTests(unittest.TestCase):
         self.assertIn(b"showModal()", payload)
         for heading in ("Nombre", "API", "Documentación"):
             self.assertIn(f"<th>{heading}</th>".encode(), payload)
-        for name in (
-            "CAMMESA Edenor (1077)",
-            "CAMMESA Edesur (1078)",
-            "ENRE Edenor",
-            "ENRE Edesur",
-            "SADI",
-            "CAMMESA",
-            "Transener",
-            "SACME",
-            "Edenor",
-            "Edesur",
-            "Edelap",
-            "CortesDeLuz.com.ar (CDL)",
-        ):
-            self.assertIn(f"<td>{name}</td>".encode(), payload)
-        for url in (
-            "https://api.cammesa.com/demanda-svc/demanda/ObtieneDemandaYTemperaturaRegion?id_region=1077",
-            "https://api.cammesa.com/demanda-svc/demanda/ObtieneDemandaYTemperaturaRegion?id_region=1078",
-            "https://www.enre.gov.ar/paginacorte/js/data_EDN.js",
-            "https://www.enre.gov.ar/paginacorte/js/data_EDS.js",
-            "https://cammesaweb.cammesa.com/informes-y-estadisticas/",
-            "https://www.enre.gov.ar/mapacortes/index.html",
-            "https://cortesdeluz.com.ar/openapi.json",
-        ):
-            self.assertIn(url.encode(), payload)
+        self.assertIn(b"CAMMESA Edenor (1077)", payload)
+        self.assertIn(b"ENRE Edenor", payload)
+        self.assertNotIn(b"ENRE Edesur", payload)
+        self.assertNotIn(b"SACME", payload)
 
     def test_render_html_without_members(self):
-        payload = render_html({"updated": "now", "members": {}})
+        payload = render_html({"updated": "now", "members": {}}, sources=[])
         self.assertIn("No hay miembros configurados.".encode(), payload)
+        self.assertIn("Sin fuentes activas.".encode(), payload)
 
 
 class VersionTests(unittest.TestCase):

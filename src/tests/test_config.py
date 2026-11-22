@@ -35,6 +35,7 @@ class ConfigTests(unittest.TestCase):
         self.assertFalse(config.serve)
         self.assertEqual((config.host, config.port), ("127.0.0.1", 8000))
         self.assertEqual((config.timeout, config.ttl, config.indent), (10.0, 60.0, 2))
+        self.assertFalse(config.strict)
         self.assertEqual(config.customers["edenor"], 3_400_000)
         self.assertEqual(config.levels, (0.0001, 0.005, 0.05))
         self.assertEqual(config.demand_levels, (0.15, 0.30, 0.50))
@@ -188,27 +189,65 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(ctx.exception.code, 2)
 
     def test_missing_config_uses_defaults(self):
-        with self.clean_env():
+        with self.clean_env(), self.assertLogs("tupa.config", level="INFO") as logs:
             config = load_config(["--config", str(self.json)])
         self.assertEqual(config.config_path, str(self.json))
         self.assertEqual(config.members, ("edenor", "edesur"))
         self.assertEqual(config.ttl, 60.0)
+        self.assertFalse(config.strict)
+        self.assertTrue(any("using defaults" in m for m in logs.output))
 
     def test_missing_config_from_env_uses_defaults(self):
-        with self.clean_env(TUPA_CONFIG=str(self.json)):
+        with self.clean_env(TUPA_CONFIG=str(self.json)), self.assertLogs("tupa.config", level="INFO"):
             config = load_config([])
         self.assertEqual(config.config_path, str(self.json))
         self.assertEqual(config.members, ("edenor", "edesur"))
         self.assertEqual(config.ttl, 60.0)
 
-    def test_invalid_json_exits_two(self):
+    def test_invalid_json_warns_and_uses_defaults(self):
         self.json.write_text("not json", encoding="utf-8")
-        with self.clean_env(), self.quiet_error(), self.assertRaises(SystemExit) as ctx:
-            load_config(["--config", str(self.json)])
+        with self.clean_env(), self.assertLogs("tupa.config", level="WARNING") as logs:
+            config = load_config(["--config", str(self.json)])
+        self.assertEqual(config.members, ("edenor", "edesur"))
+        self.assertTrue(any("using defaults" in m for m in logs.output))
+
+    def test_invalid_json_strict_exits_two(self):
+        self.json.write_text("not json", encoding="utf-8")
+        with (
+            self.clean_env(),
+            self.quiet_error(),
+            self.assertLogs("tupa.config", level="ERROR"),
+            self.assertRaises(SystemExit) as ctx,
+        ):
+            load_config(["--config", str(self.json), "--strict"])
         self.assertEqual(ctx.exception.code, 2)
 
-    def test_unknown_json_key_exits_two(self):
+    def test_unknown_json_key_warns_and_ignores(self):
+        path = self.write_json({"nope": 1, "ttl": 15})
+        with self.clean_env(), self.assertLogs("tupa.config", level="WARNING") as logs:
+            config = load_config(["--config", path])
+        self.assertEqual(config.ttl, 15.0)
+        self.assertTrue(any("unknown config keys" in m for m in logs.output))
+
+    def test_unknown_json_key_strict_exits_two(self):
         path = self.write_json({"nope": 1})
-        with self.clean_env(), self.quiet_error(), self.assertRaises(SystemExit) as ctx:
-            load_config(["--config", path])
+        with (
+            self.clean_env(),
+            self.quiet_error(),
+            self.assertLogs("tupa.config", level="ERROR"),
+            self.assertRaises(SystemExit) as ctx,
+        ):
+            load_config(["--config", path, "--strict"])
         self.assertEqual(ctx.exception.code, 2)
+
+    def test_strict_from_env_and_json(self):
+        self.json.write_text("not json", encoding="utf-8")
+        with self.clean_env(TUPA_CONFIG=str(self.json), TUPA_STRICT="true"), self.quiet_error(), self.assertRaises(SystemExit):
+            load_config([])
+        path = self.write_json({"strict": True})
+        with self.clean_env(TUPA_CONFIG=path):
+            config = load_config([])
+        self.assertTrue(config.strict)
+        with self.clean_env(TUPA_STRICT="true"):
+            config = load_config([])
+        self.assertTrue(config.strict)

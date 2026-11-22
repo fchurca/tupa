@@ -51,6 +51,9 @@ class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     server_version = f"TUPA/{get_version()}"
 
+    def address_string(self) -> str:
+        return self.client_address[0]
+
     def do_GET(self) -> None:
         path = urlsplit(self.path).path
         content_type = CONTENT_TYPES.get(path)
@@ -62,7 +65,11 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             self.send_error(503, "Status unavailable")
             return
-        body = render(status, indent=None) if path == "/api" else render_html(status)
+        body = (
+            render(status, indent=None)
+            if path == "/api"
+            else render_html(status, sources=self.server.active_sources)
+        )
         self.send_response(200)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
@@ -74,14 +81,21 @@ class Handler(BaseHTTPRequestHandler):
             pass
 
     def log_message(self, format: str, *args) -> None:
-        log.info("%s %s", self.address_string(), format % args)
+        log.info("%s %s", self.client_address[0], format % args)
 
 
 def run_server(config: Config) -> None:
     snapshot = Snapshot(config.ttl, lambda: collect_from_config(config))
+    active_sources = [
+        config.sources[source_id]
+        for member in config.members
+        for source_id in config.member_sources.get(member, ())
+        if source_id in config.sources
+    ]
     server = ThreadingHTTPServer((config.host, config.port), Handler)
     server.daemon_threads = True
     server.snapshot = snapshot
+    server.active_sources = active_sources
     log.info("serving on http://%s:%s (ttl=%ss)", config.host, config.port, config.ttl)
     try:
         server.serve_forever(poll_interval=0.5)

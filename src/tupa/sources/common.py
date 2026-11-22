@@ -11,6 +11,7 @@ from urllib.request import Request, urlopen
 from ..version import get_version
 
 USER_AGENT = f"TUPA/{get_version()} (+Telemetría Unificada de Potencia Argentina)"
+MAX_RESPONSE_BYTES = 1_000_000
 
 ACTIVE_KEYS = ("cortesPreventivos", "cortesServicioMedia", "cortesServicioBaja")
 PLANNED_KEYS = ("cortesProgramados", "cortesComunicados")
@@ -37,12 +38,18 @@ def legacy_tls_context() -> ssl.SSLContext:
 
 
 def fetch_content(
-    url: str, *, timeout: float, tls_context: ssl.SSLContext | None = None
+    url: str,
+    *,
+    timeout: float,
+    tls_context: ssl.SSLContext | None = None,
+    max_bytes: int = MAX_RESPONSE_BYTES,
 ) -> tuple[str, Mapping[str, str]]:
     request = Request(url, headers={"User-Agent": USER_AGENT})
     with urlopen(request, timeout=timeout, context=tls_context) as response:
-        raw = response.read()
+        raw = response.read(max_bytes + 1)
         headers: Mapping[str, str] = getattr(response, "headers", {})
+    if len(raw) > max_bytes:
+        raise ValueError(f"response exceeds {max_bytes} bytes")
     for encoding in ("utf-8", "latin-1"):
         try:
             return raw.decode(encoding), headers

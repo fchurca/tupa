@@ -86,6 +86,12 @@ class SourceTests(unittest.TestCase):
             fetch_text("https://example.test/data", timeout=2.0)
         self.assertIsNone(mock.call_args.kwargs["context"])
 
+    def test_fetch_rejects_oversized_response(self):
+        oversized = b"x" * 1_000_001
+        with patch("tupa.sources.common.urlopen", return_value=FakeResponse(oversized)):
+            with self.assertRaisesRegex(ValueError, "response exceeds 1000000 bytes"):
+                fetch_text("https://example.test/data", timeout=1.0)
+
     def test_edenor_severe_outages(self):
         high, _ = self.fetch("enre_edenor", "edenor_high.js")
         disaster, _ = self.fetch("enre_edenor", "edenor_disaster.js")
