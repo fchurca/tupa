@@ -16,7 +16,6 @@ from .sources.common import (
     DEFAULT_CUSTOMERS,
     DEFAULT_DEMAND_LEVELS,
     DEFAULT_LEVELS,
-    DEFAULT_DEMAND_THRESHOLDS,
     DemandThresholds,
     Thresholds,
     thresholds_from,
@@ -34,12 +33,10 @@ CONFIG_KEYS = frozenset(
         "port",
         "timeout",
         "ttl",
-        "format",
         "indent",
         "customers",
         "levels",
         "demand_levels",
-        "strict",
         "tz",
     }
 )
@@ -59,13 +56,8 @@ class Config:
     port: int
     timeout: float
     ttl: float
-    format: str
     indent: int
     config_path: str | None
-    strict: bool
-    customers: Mapping[str, int]
-    levels: tuple[float, float, float]
-    demand_levels: tuple[float, float, float]
     thresholds: Mapping[str, Thresholds]
     demand_thresholds: DemandThresholds
 
@@ -181,11 +173,8 @@ def load_config(argv: Sequence[str] | None = None) -> Config:
     parser.add_argument("--port", default=None)
     parser.add_argument("--timeout", default=None)
     parser.add_argument("--ttl", default=None)
-    parser.add_argument("--format", default=None)
     parser.add_argument("--indent", default=None)
     parser.add_argument("--config", default=None)
-    parser.add_argument("--strict", action="store_true", default=None)
-    parser.add_argument("--nonstrict", action="store_true")
     parser.add_argument("--tz", default=None)
     parser.add_argument("--customers", default=None)
     parser.add_argument("--levels", default=None)
@@ -196,20 +185,6 @@ def load_config(argv: Sequence[str] | None = None) -> Config:
         parser.error(message)
 
     config_path = args.config or os.environ.get("TUPA_CONFIG")
-    strict_source = (
-        args.strict if args.strict is not None else os.environ.get("TUPA_STRICT")
-    )
-
-    def strict_from(loaded: Mapping[str, object]) -> bool:
-        if args.nonstrict:
-            return False
-        source = strict_source if strict_source is not None else loaded.get("strict", False)
-        try:
-            return _bool(source, "strict")
-        except (TypeError, ValueError) as exc:
-            fail(str(exc))
-        return False
-
     file_config: Mapping[str, object] = {}
     if config_path:
         path = Path(config_path)
@@ -219,31 +194,22 @@ def load_config(argv: Sequence[str] | None = None) -> Config:
             log.info("config file %s not found; using defaults", config_path)
             loaded = {}
         except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-            if strict_from({}):
-                log.error("cannot read JSON config %r: %s", config_path, exc)
-                fail(f"cannot read JSON config {config_path!r}: {exc}")
             log.warning(
                 "cannot read JSON config %r: %s; using defaults", config_path, exc
             )
             loaded = {}
         if not isinstance(loaded, dict):
-            message = "JSON config must contain an object"
-            if strict_from({}):
-                log.error("%s in %r", message, config_path)
-                fail(message)
-            log.warning("%s in %r; using defaults", message, config_path)
+            log.warning("JSON config must contain an object in %r; using defaults", config_path)
             loaded = {}
         unknown = set(loaded) - CONFIG_KEYS
         if unknown:
-            message = "unknown config keys: " + ", ".join(sorted(map(str, unknown)))
-            if strict_from(loaded):
-                log.error("%s in %r", message, config_path)
-                fail(message)
-            log.warning("%s in %r; ignoring them", message, config_path)
+            log.warning(
+                "unknown config keys: %s in %r; ignoring them",
+                ", ".join(sorted(map(str, unknown))),
+                config_path,
+            )
             loaded = {key: value for key, value in loaded.items() if key in CONFIG_KEYS}
         file_config = loaded
-
-    strict = strict_from(file_config)
 
     def value(key: str, env_key: str, cli: object, default: object) -> object:
         if cli is not None:
@@ -294,9 +260,6 @@ def load_config(argv: Sequence[str] | None = None) -> Config:
         port = _int(value("port", "TUPA_PORT", args.port, 8000), "port", 1, 65535)
         timeout = _float(value("timeout", "TUPA_TIMEOUT", args.timeout, 20.0), "timeout", 0.1)
         ttl = _float(value("ttl", "TUPA_TTL", args.ttl, 60.0), "ttl", 0.0)
-        output_format = str(value("format", "TUPA_FORMAT", args.format, "json")).strip().lower()
-        if output_format != "json":
-            raise ValueError(f"unsupported format: {output_format!r}")
         indent = _int(value("indent", "TUPA_INDENT", args.indent, 2), "indent", 0, 8)
         customers = {
             **DEFAULT_CUSTOMERS,
@@ -321,17 +284,8 @@ def load_config(argv: Sequence[str] | None = None) -> Config:
         port=port,
         timeout=timeout,
         ttl=ttl,
-        format=output_format,
         indent=indent,
         config_path=config_path,
-        strict=strict,
-        customers=customers,
-        levels=levels,
-        demand_levels=demand_levels,
         thresholds=thresholds_from(customers, levels),
-        demand_thresholds=(
-            DEFAULT_DEMAND_THRESHOLDS
-            if demand_levels == DEFAULT_DEMAND_LEVELS
-            else DemandThresholds(*demand_levels)
-        ),
+        demand_thresholds=DemandThresholds(*demand_levels),
     )

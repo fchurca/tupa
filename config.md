@@ -10,8 +10,8 @@ come from three layers, in decreasing priority:
 **Most users should not need to change any configuration.** The defaults are
 intended to work out of the box. In deployments the usual settings are the
 listening address/port and, occasionally, the timezone (which defaults to
-Argentina Time). Timeout, TTL, severity thresholds,
-member/source enabling and strict validation are administrator-level controls:
+Argentina Time). Timeout, TTL, severity thresholds and
+member/source enabling are administrator-level controls:
 changing them without a specific reason can produce misleading status or make
 the service harder to operate.
 
@@ -26,13 +26,9 @@ The JSON file is selected with `--config PATH` or `TUPA_CONFIG`.
 
 If no config file is found, TUPA logs an info message and uses defaults. If a
 config file exists but cannot be read/parsed, or contains an invalid top-level
-shape or unknown top-level keys, TUPA logs a warning and uses defaults while
-ignoring the invalid part. With `--strict` / `TUPA_STRICT=true` / `"strict":
-true`, missing config files still log info and use defaults, but existing
-unloadable/invalid config files log an error and cause startup failure. Use
-`--nonstrict` to force strict mode off regardless of environment or JSON;
-`--once` forces one-shot JSON output regardless of `serve` settings. Invalid
-values, including an invalid boolean for `strict`, exit with status 2.
+shape or unknown top-level keys, TUPA logs a warning, ignores the invalid part
+and uses defaults for it. `--once` forces one-shot JSON output regardless of
+`serve` settings. Invalid values exit with status 2.
 
 ## Quick start
 
@@ -44,7 +40,6 @@ values, including an invalid boolean for `strict`, exit with status 2.
   "port": 8000,
   "timeout": 20,
   "ttl": 60,
-  "format": "json",
   "indent": 2,
   "tz": "system",
   "customers": {"edenor": 3400000, "edesur": 2700000, "edelap": 400000},
@@ -136,11 +131,8 @@ the source name.
 | Listen port | `--port PORT` | `TUPA_PORT` | `port` | `8000` |
 | Upstream timeout (seconds) | `--timeout SECONDS` | `TUPA_TIMEOUT` | `timeout` | `20` |
 | Daemon cache TTL (seconds) | `--ttl SECONDS` | `TUPA_TTL` | `ttl` | `60` |
-| Output format | `--format json` | `TUPA_FORMAT` | `format` | `json` |
 | JSON indentation (0-8 spaces) | `--indent SPACES` | `TUPA_INDENT` | `indent` | `2` |
 | JSON file path | `--config PATH` | `TUPA_CONFIG` | — | none |
-| Strict config validation | `--strict` | `TUPA_STRICT` | `strict` | `false` |
-| Force non-strict mode | `--nonstrict` | — | — | off |
 | Output timezone | `--tz NAME` | `TUPA_TZ` | `tz` | Argentina Time (ART) |
 | Customer baselines | `--customers NAME=COUNT,...` | `TUPA_CUSTOMERS` | `customers` | see below |
 | Severity fractions | `--levels WARN,HIGH,DISASTER` | `TUPA_LEVELS` | `levels` | `0.0001,0.005,0.05` |
@@ -154,20 +146,18 @@ Notes:
   `selected_members: []`, empty or whitespace-only `TUPA_MEMBERS`, an empty CLI
   selection, `members: []` and `sources: []`.
 - Unknown or disabled members, and unknown built-in source names, are rejected.
-- `--once` wins over `--serve`, `TUPA_SERVE` and `"serve": true`; `--nonstrict`
-  wins over `--strict`, `TUPA_STRICT` and `"strict": true`.
+- `--once` wins over `--serve`, `TUPA_SERVE` and `"serve": true`.
 - Booleans accept `1`, `true`, `yes`, `on` and `0`, `false`, `no`, `off`
   (case-insensitive).
 - `port` is 1-65535, `timeout` is at least 0.1, `ttl` is at least 0 (zero
-  disables caching), and `indent` is 0-8. `format` only supports `json`.
+  disables caching), and `indent` is 0-8.
 - `timeout` is the overall deadline for a collection and the socket timeout
   budget for each upstream fetch. Fetches run in parallel under that one
   deadline, so the default 20 seconds bounds the whole collection, not each
   source. The socket budget is recomputed from the absolute deadline after
   connection setup and checked while reading the body, so a slow upstream
-  cannot extend the collection indefinitely. Pending fetches have their sockets
-  closed; workers are daemon threads joined briefly on shutdown. Lower the
-  timeout for tight health checks, raise it for slow upstreams.
+  cannot extend the collection indefinitely. Lower the timeout for tight
+  health checks, raise it for slow upstreams.
 - DNS lookups are made by the operating system resolver (`getaddrinfo`), which
   Python cannot interrupt: a slow lookup can consume the budget and mark a
   source unavailable even if the name would eventually resolve, and a stalled
@@ -175,7 +165,8 @@ Notes:
   for ordinary resolver delays; with a slow resolver or many nameservers,
   raise `TUPA_TIMEOUT` or point the host at a faster resolver.
 - In daemon mode a cache miss refreshes synchronously, so the first request
-  after the TTL expires can take up to the timeout to respond.
+  after the TTL expires can take up to the timeout to respond. If collection
+  fails, the request returns an error instead of stale data.
 - Redirects follow urllib defaults: at most 10 distinct URLs and 4 repeats of
   the same URL. Redirects to loopback, private, link-local or reserved addresses
   are rejected unless the original URL itself used such an address.
@@ -186,11 +177,12 @@ Notes:
 All timestamps in the output are normalized to one timezone. By default TUPA
 uses Argentina Time (ART, `America/Argentina/Buenos_Aires`). TUPA does not probe
 `/etc/localtime`: set `TZ` or `tz` / `TUPA_TZ` / `--tz` to override the default
-with an IANA name such as `America/Argentina/Buenos_Aires`, a fixed offset such
-as `-03:00`, or `UTC`. An unset or unresolvable `TZ` falls back to ART; an
-invalid explicit TUPA setting is a configuration error. `system` and `local`
-select the same default. The container image includes `tzdata`. ENRE reports
-only a local time of day in ART; TUPA combines it with the file's HTTP
+with an IANA name such as `America/Argentina/Buenos_Aires` or `UTC`. An unset
+or unresolvable `TZ` falls back to ART; an invalid explicit TUPA setting is a
+configuration error. `system` selects the same default. The container image
+includes `tzdata`.
+
+ENRE reports only a local time of day in ART; TUPA combines it with the file's HTTP
 `Last-Modified` date and converts it to the configured output timezone. Without
 that header, `updated` records when TUPA observed the data instead of assuming
 a date.

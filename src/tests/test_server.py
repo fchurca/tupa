@@ -27,27 +27,6 @@ class SnapshotTests(unittest.TestCase):
             clock[0] = 62.0
             self.assertEqual(snapshot.get()["updated"], "second")
 
-    def test_stale_on_error(self):
-        values = iter([status("operational"), RuntimeError("down")])
-
-        def collector():
-            value = next(values)
-            if isinstance(value, Exception):
-                raise value
-            return value
-
-        snapshot = Snapshot(60.0, collector)
-        clock = [0.0]
-        with (
-            patch("tupa.server.time.monotonic", side_effect=lambda: clock[0]),
-            patch("tupa.server.log"),
-        ):
-            self.assertEqual(snapshot.get()["members"]["n"]["status"], "operational")
-            clock[0] = 61.0
-            self.assertEqual(snapshot.get()["members"]["n"]["status"], "operational")
-            clock[0] = 62.0
-            self.assertEqual(snapshot.get()["members"]["n"]["status"], "operational")
-
     def test_first_failure_propagates(self):
         def collector():
             raise RuntimeError("down")
@@ -60,31 +39,6 @@ class SnapshotTests(unittest.TestCase):
         snapshot = Snapshot(0.0, lambda: next(values))
         self.assertEqual(snapshot.get()["updated"], "first")
         self.assertEqual(snapshot.get()["updated"], "second")
-
-    def test_stale_window_starts_after_failed_collection(self):
-        values = iter([status("operational"), RuntimeError("down"), status("warn")])
-        clock = [0.0]
-
-        def collector():
-            value = next(values)
-            if isinstance(value, Exception):
-                clock[0] += 8.0
-                raise value
-            return value
-
-        snapshot = Snapshot(60.0, collector)
-        with (
-            patch("tupa.server.time.monotonic", side_effect=lambda: clock[0]),
-            patch("tupa.server.log"),
-        ):
-            self.assertEqual(snapshot.get()["members"]["n"]["status"], "operational")
-            clock[0] = 61.0
-            self.assertEqual(snapshot.get()["members"]["n"]["status"], "operational")
-            self.assertEqual(snapshot._expires, 79.0)
-            clock[0] = 78.0
-            self.assertEqual(snapshot.get()["members"]["n"]["status"], "operational")
-            clock[0] = 80.0
-            self.assertEqual(snapshot.get()["members"]["n"]["status"], "warn")
 
 
 class HTTPTests(unittest.TestCase):

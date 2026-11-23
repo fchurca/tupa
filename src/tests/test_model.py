@@ -1,11 +1,10 @@
 import os
 import re
 import unittest
-from datetime import timedelta
 from unittest.mock import patch
 
 from tupa.model import (
-    AR_TZ,
+    ART_TZ,
     STATUSES,
     aggregate,
     make_member,
@@ -59,7 +58,7 @@ class ModelTests(unittest.TestCase):
                 ),
             ),
         ]
-        member = aggregate(results, tz=AR_TZ)
+        member = aggregate(results, tz=ART_TZ)
         self.assertEqual(member.status, "warn")
         self.assertEqual(member.updated, "2026-01-01T00:01:00-03:00")
         self.assertIn("enre: cortes", member.comment)
@@ -79,10 +78,10 @@ class ModelTests(unittest.TestCase):
 
     def test_resolve_timezone(self):
         self.assertEqual(str(resolve_timezone("UTC")), "UTC")
-        self.assertEqual(resolve_timezone("-03:00").utcoffset(None), timedelta(hours=-3))
         self.assertEqual(str(resolve_timezone("system")), str(system_timezone()))
-        with self.assertRaises(ValueError):
-            resolve_timezone("Mars/Olympus")
+        for value in ("-03:00", "local", "Mars/Olympus"):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                resolve_timezone(value)
 
     def test_system_timezone_uses_tz_only(self):
         with patch.dict(os.environ, {}, clear=True):
@@ -97,7 +96,7 @@ class ModelTests(unittest.TestCase):
             ("a", make_member("warn", updated="2026-11-21T20:00:00-03:00")),
             ("b", make_member("operational", updated="2026-11-21T21:00:00Z")),
         ]
-        member = aggregate(results, tz=AR_TZ)
+        member = aggregate(results, tz=ART_TZ)
         self.assertEqual(member.updated, "2026-11-21T20:00:00-03:00")
 
     def test_aggregate_ignores_failed_source_timestamp(self):
@@ -115,5 +114,5 @@ class ModelTests(unittest.TestCase):
                 ),
             ),
         ]
-        member = aggregate(results, tz=AR_TZ)
+        member = aggregate(results, tz=ART_TZ)
         self.assertEqual(member.updated, "2026-11-22T13:55:00-03:00")

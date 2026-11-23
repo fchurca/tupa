@@ -11,16 +11,7 @@ from datetime import tzinfo
 from .config import Config
 from .model import Member, SourceSpec, aggregate, now_rfc3339, unknown_member
 from .sources import DEFAULT_MEMBERS, DEFAULT_SOURCES, fetch_source
-from .sources.common import (
-    DEFAULT_DEMAND_THRESHOLDS,
-    DemandThresholds,
-    Thresholds,
-    begin_fetch,
-    cancel_fetch,
-    clear_cancellation,
-    clear_fetch_token,
-    set_fetch_token,
-)
+from .sources.common import DEFAULT_DEMAND_THRESHOLDS, DemandThresholds, Thresholds
 
 log = logging.getLogger(__name__)
 
@@ -31,12 +22,8 @@ _POOL_LOCK = threading.Lock()
 
 class _DaemonPool:
     def __init__(self, max_workers: int):
-        self._tasks: queue.Queue[tuple[Future, object, object, tuple, dict] | None] = (
-            queue.Queue()
-        )
+        self._tasks: queue.Queue[tuple[Future, object, tuple, dict] | None] = queue.Queue()
         self._threads: list[threading.Thread] = []
-        self._lock = threading.Lock()
-        self._tokens: dict[Future, object] = {}
         for index in range(max_workers):
             thread = threading.Thread(
                 target=self._worker,
@@ -51,24 +38,15 @@ class _DaemonPool:
             item = self._tasks.get()
             if item is None:
                 return
-            future, token, fn, args, kwargs = item
+            future, fn, args, kwargs = item
             if not future.set_running_or_notify_cancel():
-                clear_cancellation(token)
-                with self._lock:
-                    self._tokens.pop(future, None)
                 continue
-            set_fetch_token(token)
             result: object = None
             error: BaseException | None = None
             try:
                 result = fn(*args, **kwargs)
             except BaseException as exc:
                 error = exc
-            finally:
-                clear_fetch_token()
-                clear_cancellation(token)
-                with self._lock:
-                    self._tokens.pop(future, None)
             if error is None:
                 future.set_result(result)
             else:
@@ -76,23 +54,8 @@ class _DaemonPool:
 
     def submit(self, fn, *args, **kwargs) -> Future:
         future: Future = Future()
-        token = object()
-        with self._lock:
-            self._tokens[future] = token
-        begin_fetch(token)
-        self._tasks.put((future, token, fn, args, kwargs))
+        self._tasks.put((future, fn, args, kwargs))
         return future
-
-    def cancel_future(self, future: Future) -> bool:
-        with self._lock:
-            token = self._tokens.get(future)
-        return cancel_fetch(token) if token is not None else False
-
-    def shutdown(self) -> None:
-        for _ in self._threads:
-            self._tasks.put(None)
-        for thread in self._threads:
-            thread.join(timeout=0.05)
 
 
 def _get_pool() -> _DaemonPool:
@@ -133,54 +96,47 @@ def collect(
     groups: dict[str, list[tuple[str, Member]]] = {name: [] for name in selected}
     futures: dict[Future, tuple[str, str]] = {}
     pool = _get_pool() if tasks else None
-    try:
-        if pool is not None:
-            futures = {
-                pool.submit(
-                    fetch_source,
-                    spec,
-                    timeout=timeout,
-                    thresholds=thresholds,
-                    demand_thresholds=demand_thresholds or DEFAULT_DEMAND_THRESHOLDS,
-                    tz=tz,
-                    deadline=deadline,
-                ): (member, source_id)
-                for member, source_id, spec in tasks
-            }
-        done, pending = wait(futures, timeout=max(0.0, deadline - time.monotonic()))
-        for future in done:
-            member, source_id = futures[future]
-            try:
-                result = future.result()
-            except TimeoutError:
-                log.warning("source %s timed out after %s seconds", source_id, timeout)
-                result = unknown_member(
+    if pool is not None:
+        futures = {
+            pool.submit(
+                fetch_source,
+                spec,
+                timeout=timeout,
+                thresholds=thresholds,
+                demand_thresholds=demand_thresholds or DEFAULT_DEMAND_THRESHOLDS,
+                tz=tz,
+                deadline=deadline,
+            ): (member, source_id)
+            for member, source_id, spec in tasks
+        }
+    done, pending = wait(futures, timeout=max(0.0, deadline - time.monotonic()))
+    for future in done:
+        member, source_id = futures[future]
+        try:
+            result = future.result()
+        except TimeoutError:
+            log.warning("source %s timed out after %s seconds", source_id, timeout)
+            result = unknown_member(
+                f"{source_id} no respondió a tiempo después de {timeout:g} segundos",
+                tz=tz,
+            )
+        except Exception as exc:
+            log.warning("source %s failed: %s: %s", source_id, type(exc).__name__, exc)
+            result = unknown_member(f"{type(exc).__name__}: {exc}", tz=tz)
+        groups[member].append((source_id, result))
+    for future in pending:
+        future.cancel()
+        member, source_id = futures[future]
+        log.warning("source %s timed out after %s seconds", source_id, timeout)
+        groups[member].append(
+            (
+                source_id,
+                unknown_member(
                     f"{source_id} no respondió a tiempo después de {timeout:g} segundos",
                     tz=tz,
-                )
-            except Exception as exc:
-                log.warning("source %s failed: %s: %s", source_id, type(exc).__name__, exc)
-                result = unknown_member(f"{type(exc).__name__}: {exc}", tz=tz)
-            groups[member].append((source_id, result))
-        for future in pending:
-            future.cancel()
-            member, source_id = futures[future]
-            if pool is not None and not pool.cancel_future(future):
-                log.warning("source %s had no open socket to cancel", source_id)
-            log.warning("source %s timed out after %s seconds", source_id, timeout)
-            groups[member].append(
-                (
-                    source_id,
-                    unknown_member(
-                        f"{source_id} no respondió a tiempo después de {timeout:g} segundos",
-                        tz=tz,
-                    ),
-                )
+                ),
             )
-    finally:
-        if pool is not None:
-            for future in futures:
-                pool.cancel_future(future)
+        )
 
     resolved = {
         member: aggregate(sorted(results, key=lambda item: item[0]), tz=tz).to_json()

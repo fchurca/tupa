@@ -1,31 +1,11 @@
 import threading
 import time
 import unittest
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import tupa.core as core
-from tupa.model import AR_TZ, SourceSpec, make_member
-from tupa.sources import common
-from tupa.sources.common import active_sockets
-
-
-class TrickleHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header("Content-Length", "20")
-        self.end_headers()
-        try:
-            for _ in range(20):
-                self.wfile.write(b"x")
-                self.wfile.flush()
-                time.sleep(0.05)
-        except OSError:
-            return
-
-    def log_message(self, *args):
-        return
+from tupa.model import ART_TZ, SourceSpec, make_member
 
 
 def spec(name, member):
@@ -51,7 +31,7 @@ class CoreTests(unittest.TestCase):
                 timeout=3.5,
                 sources=sources,
                 member_sources=members,
-                tz=AR_TZ,
+                tz=ART_TZ,
             )
 
         self.assertRegex(
@@ -130,36 +110,6 @@ class CoreTests(unittest.TestCase):
             all(thread.daemon for thread in threading.enumerate() if thread.name.startswith("tupa-fetch-"))
         )
 
-    def test_collect_cancels_open_socket_on_deadline(self):
-        server = ThreadingHTTPServer(("127.0.0.1", 0), TrickleHandler)
-        server.daemon_threads = True
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        try:
-            source = SourceSpec(
-                "slow",
-                "enre_outages",
-                "edenor",
-                url=f"http://127.0.0.1:{server.server_port}/",
-                empresa="TEST",
-            )
-            start = time.monotonic()
-            status = core.collect(
-                None,
-                timeout=0.3,
-                sources={"slow": source},
-                member_sources={"edenor": ("slow",)},
-            )
-            elapsed = time.monotonic() - start
-        finally:
-            server.shutdown()
-            server.server_close()
-            thread.join(timeout=2)
-        self.assertLess(elapsed, 2.0)
-        self.assertEqual(status["members"]["edenor"]["status"], "unknown")
-        self.assertIn("no respondió", status["members"]["edenor"]["comment"])
-        self.assertEqual(active_sockets(), 0)
-
     def test_collect_forwards_thresholds(self):
         received = []
 
@@ -201,7 +151,7 @@ class CoreTests(unittest.TestCase):
 
         with patch("tupa.core.fetch_source", side_effect=fake):
             status = core.collect(
-                None, timeout=1.0, sources=sources, member_sources=members, tz=AR_TZ
+                None, timeout=1.0, sources=sources, member_sources=members, tz=ART_TZ
             )
 
         member = status["members"]["edenor"]
@@ -257,32 +207,6 @@ class CoreTests(unittest.TestCase):
         self.assertIn("dup: operational", member["comment"])
         self.assertIn("dup: warn", member["comment"])
 
-    def test_cancellation_tokens_are_cleared(self):
-        baseline = len(common._cancelled)
-        release = threading.Event()
-
-        def blocked(spec, **kwargs):
-            release.wait(2)
-            return make_member("operational")
-
-        sources = {f"s{index}": spec(f"s{index}", "m") for index in range(20)}
-        try:
-            with patch("tupa.core.log"), patch(
-                "tupa.core.fetch_source", side_effect=blocked
-            ):
-                core.collect(
-                    None,
-                    timeout=0.05,
-                    sources=sources,
-                    member_sources={"m": tuple(sources)},
-                )
-        finally:
-            release.set()
-        deadline = time.monotonic() + 2
-        while len(common._cancelled) > baseline and time.monotonic() < deadline:
-            time.sleep(0.01)
-        self.assertEqual(len(common._cancelled), baseline)
-
     def test_pool_is_shared_between_collections(self):
         sources = {"one": spec("one", "one")}
         members = {"one": ("one",)}
@@ -296,7 +220,7 @@ class CoreTests(unittest.TestCase):
     def test_collect_from_config_forwards_settings(self):
         config = SimpleNamespace(
             members=("edenor",),
-            tz=AR_TZ,
+            tz=ART_TZ,
             timeout=7.0,
             thresholds={"edenor": object()},
             demand_thresholds=object(),
@@ -308,7 +232,7 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(result, {"ok": True})
         collect.assert_called_once_with(
             ("edenor",),
-            tz=AR_TZ,
+            tz=ART_TZ,
             timeout=7.0,
             thresholds=config.thresholds,
             demand_thresholds=config.demand_thresholds,

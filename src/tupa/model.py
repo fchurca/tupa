@@ -1,23 +1,16 @@
 from __future__ import annotations
 
 import os
-import re
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone, tzinfo
+from datetime import datetime, tzinfo
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 STATUSES = frozenset({"operational", "warn", "high", "disaster", "unknown"})
 
 SEVERITY = {"operational": 0, "warn": 1, "high": 2, "disaster": 3, "unknown": -1}
 
-try:
-    ART_TZ: tzinfo = ZoneInfo("America/Argentina/Buenos_Aires")
-except ZoneInfoNotFoundError:
-    ART_TZ = timezone(timedelta(hours=-3))
-AR_TZ = ART_TZ
-UTC_TZ = timezone.utc
-_OFFSET_RE = re.compile(r"\A([+-])(\d{2}):?(\d{2})\Z")
+ART_TZ: tzinfo = ZoneInfo("America/Argentina/Buenos_Aires")
 
 
 def system_timezone() -> tzinfo:
@@ -34,16 +27,8 @@ def resolve_timezone(value: object = None) -> tzinfo:
     if value is None:
         return system_timezone()
     text = str(value).strip().lstrip(":")
-    if not text or text.upper() in {"SYSTEM", "LOCAL"}:
+    if not text or text.upper() == "SYSTEM":
         return system_timezone()
-    if text.upper() in {"UTC", "GMT", "Z"}:
-        return UTC_TZ
-    match = _OFFSET_RE.fullmatch(text)
-    if match:
-        sign = 1 if match.group(1) == "+" else -1
-        return timezone(
-            sign * timedelta(hours=int(match.group(2)), minutes=int(match.group(3)))
-        )
     try:
         return ZoneInfo(text)
     except (ZoneInfoNotFoundError, ValueError):
@@ -100,7 +85,7 @@ def unknown_member(reason: str, *, tz: tzinfo | None = None) -> Member:
 
 
 def _normalize_updated(value: str, tz: tzinfo) -> datetime:
-    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    parsed = datetime.fromisoformat(value)
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=tz)
     return parsed.astimezone(tz)

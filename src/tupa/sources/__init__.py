@@ -56,8 +56,6 @@ def fetch_source(
     deadline: float | None = None,
 ) -> Member:
     if spec.kind == "enre_outages":
-        if not spec.url or not spec.empresa:
-            raise ValueError(f"{spec.name}: enre_outages requires url and empresa")
         return fetch_enre(
             name=spec.member,
             empresa=spec.empresa,
@@ -68,8 +66,6 @@ def fetch_source(
             deadline=deadline,
         )
     if spec.kind == "cammesa_demand":
-        if not spec.region:
-            raise ValueError(f"{spec.name}: cammesa_demand requires region")
         return fetch_demand(
             spec=spec,
             timeout=timeout,

@@ -13,24 +13,16 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request
 
 import tupa.sources.common as common
-from tupa.model import AR_TZ, SourceSpec
+from tupa.model import ART_TZ, SourceSpec
 from tupa.sources import DEFAULT_SOURCES, cammesa
 from tupa.sources.common import (
     USER_AGENT,
     DemandThresholds,
-    active_sockets,
     FetchTimeout,
     _is_private_target,
-    begin_fetch,
-    cancel_fetch,
-    clear_cancellation,
-    clear_fetch_token,
     fetch_text,
     legacy_tls_context,
-    register_socket,
-    set_fetch_token,
     thresholds_from,
-    unregister_fetch,
 )
 from tupa.sources.enre import fetch_enre
 
@@ -60,7 +52,7 @@ class SourceTests(unittest.TestCase):
                 url=spec.url,
                 timeout=4.0,
                 thresholds=thresholds,
-                tz=AR_TZ,
+                tz=ART_TZ,
             )
         return member, mock
 
@@ -105,22 +97,6 @@ class SourceTests(unittest.TestCase):
             fetch_text("https://example.test/data", timeout=2.0)
         self.assertIsNone(mock.call_args.kwargs["context"])
 
-    def test_cancel_fetch_closes_registered_socket(self):
-        left, right = socket.socketpair()
-        token = object()
-        begin_fetch(token)
-        try:
-            register_socket(left, token)
-            self.assertEqual(active_sockets(), 1)
-            self.assertTrue(cancel_fetch(token))
-            self.assertEqual(active_sockets(), 0)
-            with self.assertRaises(OSError):
-                left.send(b"x")
-        finally:
-            clear_cancellation(token)
-            left.close()
-            right.close()
-
     def test_fetch_rejects_oversized_response(self):
         oversized = b"x" * 1_000_001
         with patch("tupa.sources.common.urlopen", return_value=FakeResponse(oversized)):
@@ -156,7 +132,7 @@ class SourceTests(unittest.TestCase):
         with patch(
             "tupa.sources.common.urlopen", return_value=response("cammesa_high.json")
         ) as mock:
-            member = cammesa.fetch_demand(spec=spec, timeout=4.0, tz=AR_TZ)
+            member = cammesa.fetch_demand(spec=spec, timeout=4.0, tz=ART_TZ)
         self.assertEqual(member.status, "high")
         self.assertIn("700 MW", member.comment)
         self.assertIn("30.0% bajo referencia", member.comment)
@@ -170,7 +146,7 @@ class SourceTests(unittest.TestCase):
         with patch(
             "tupa.sources.common.urlopen", return_value=response("cammesa_high.json")
         ):
-            member = cammesa.fetch_demand(spec=spec, timeout=1.0, thresholds=thresholds, tz=AR_TZ)
+            member = cammesa.fetch_demand(spec=spec, timeout=1.0, thresholds=thresholds, tz=ART_TZ)
         self.assertEqual(member.status, "warn")
 
     def test_cammesa_without_comparable_data_is_unknown(self):
@@ -178,7 +154,7 @@ class SourceTests(unittest.TestCase):
         with patch(
             "tupa.sources.common.urlopen", return_value=response("cammesa_no_data.json")
         ):
-            member = cammesa.fetch_demand(spec=spec, timeout=1.0, tz=AR_TZ)
+            member = cammesa.fetch_demand(spec=spec, timeout=1.0, tz=ART_TZ)
         self.assertEqual(member.status, "unknown")
         self.assertIn("sin datos comparables", member.comment)
 
@@ -205,7 +181,7 @@ class SourceTests(unittest.TestCase):
             },
         ]
         with patch("tupa.sources.cammesa.fetch_text", return_value=json.dumps(payload)):
-            member = cammesa.fetch_demand(spec=spec, timeout=1.0, tz=AR_TZ)
+            member = cammesa.fetch_demand(spec=spec, timeout=1.0, tz=ART_TZ)
         self.assertIn("700 MW; 30.0% bajo referencia 1000 MW", member.comment)
         self.assertEqual(member.updated, "2026-11-21T13:55:00-03:00")
 
@@ -223,7 +199,7 @@ class SourceTests(unittest.TestCase):
             patch("tupa.sources.cammesa.fetch_text", return_value=json.dumps(payload)),
             self.assertRaisesRegex(ValueError, "fecha no válida"),
         ):
-            cammesa.fetch_demand(spec=spec, timeout=1.0, tz=AR_TZ)
+            cammesa.fetch_demand(spec=spec, timeout=1.0, tz=ART_TZ)
 
     def test_cammesa_naive_fecha_uses_local_offset(self):
         spec = SourceSpec("cammesa_edenor", "cammesa_demand", "edenor", region=1077)
@@ -236,7 +212,7 @@ class SourceTests(unittest.TestCase):
             }
         ]
         with patch("tupa.sources.cammesa.fetch_text", return_value=json.dumps(payload)):
-            member = cammesa.fetch_demand(spec=spec, timeout=1.0, tz=AR_TZ)
+            member = cammesa.fetch_demand(spec=spec, timeout=1.0, tz=ART_TZ)
         self.assertEqual(member.updated, "2026-11-21T14:00:00-03:00")
 
     def test_cammesa_zero_demand_is_disaster(self):
@@ -250,7 +226,7 @@ class SourceTests(unittest.TestCase):
             }
         ]
         with patch("tupa.sources.cammesa.fetch_text", return_value=json.dumps(payload)):
-            member = cammesa.fetch_demand(spec=spec, timeout=1.0, tz=AR_TZ)
+            member = cammesa.fetch_demand(spec=spec, timeout=1.0, tz=ART_TZ)
         self.assertEqual(member.status, "disaster")
         self.assertIn("0 MW; 100.0% bajo referencia", member.comment)
 
@@ -268,7 +244,7 @@ class SourceTests(unittest.TestCase):
         payload[0]["fecha"] = "2026-11-21T14:05:00-0300"
         payload[3]["fecha"] = "2026-11-21T14:00:00-0300"
         with patch("tupa.sources.cammesa.fetch_text", return_value=json.dumps(payload)):
-            member = cammesa.fetch_demand(spec=spec, timeout=1.0, tz=AR_TZ)
+            member = cammesa.fetch_demand(spec=spec, timeout=1.0, tz=ART_TZ)
         self.assertEqual(member.updated, "2026-11-21T14:00:00-03:00")
         self.assertEqual(member.status, "disaster")
 
@@ -323,19 +299,6 @@ class SourceTests(unittest.TestCase):
             server.server_close()
             thread.join(timeout=2)
 
-    def test_fetch_cancelled_before_start(self):
-        token = object()
-        begin_fetch(token)
-        cancel_fetch(token)
-        set_fetch_token(token)
-        try:
-            with self.assertRaises(FetchTimeout):
-                fetch_text("http://127.0.0.1:1/", timeout=1.0)
-        finally:
-            clear_fetch_token()
-            clear_cancellation(token)
-            unregister_fetch(token)
-
     def test_private_redirect_targets_are_rejected(self):
         self.assertTrue(_is_private_target("127.0.0.1"))
         self.assertTrue(_is_private_target("::1"))
@@ -363,23 +326,6 @@ class SourceTests(unittest.TestCase):
             self.assertIn("not allowed", str(caught.exception))
         finally:
             common._fetch_local.allow_private = previous
-
-    def test_check_cancelled_closes_socket(self):
-        token = object()
-        begin_fetch(token)
-        cancel_fetch(token)
-        set_fetch_token(token)
-        left, right = socket.socketpair()
-        try:
-            with self.assertRaises(FetchTimeout):
-                common._check_cancelled(left)
-            with self.assertRaises(OSError):
-                left.send(b"x")
-        finally:
-            clear_fetch_token()
-            clear_cancellation(token)
-            left.close()
-            right.close()
 
     def test_redirect_handler_fails_closed(self):
         request = Request("https://public.example/")

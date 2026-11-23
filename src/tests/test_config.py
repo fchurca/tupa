@@ -4,7 +4,6 @@ import json
 import os
 import tempfile
 import unittest
-from datetime import timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -37,10 +36,6 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual((config.host, config.port), ("127.0.0.1", 8000))
         self.assertEqual((config.timeout, config.ttl, config.indent), (20.0, 60.0, 2))
         self.assertEqual(str(config.tz), "America/Argentina/Buenos_Aires")
-        self.assertFalse(config.strict)
-        self.assertEqual(config.customers["edenor"], 3_400_000)
-        self.assertEqual(config.levels, (0.0001, 0.005, 0.05))
-        self.assertEqual(config.demand_levels, (0.15, 0.30, 0.50))
         self.assertEqual(config.thresholds["edenor"].warn, 340)
         self.assertEqual(config.thresholds["edesur"].high, 13_500)
         self.assertEqual(config.demand_thresholds.disaster, 0.50)
@@ -81,13 +76,6 @@ class ConfigTests(unittest.TestCase):
         with self.clean_env(TUPA_CONFIG=path, TUPA_SERVE="true"):
             config = load_config(["--serve", "--once"])
         self.assertFalse(config.serve)
-
-    def test_nonstrict_forces_strict_false(self):
-        path = self.write_json({"strict": True, "nope": 1})
-        with self.clean_env(TUPA_CONFIG=path, TUPA_STRICT="true"):
-            config = load_config(["--strict", "--nonstrict"])
-        self.assertFalse(config.strict)
-        self.assertEqual(config.ttl, 60.0)
 
     def test_json_only(self):
         path = self.write_json({"selected_members": ["edenor", "edesur"], "ttl": 15})
@@ -152,38 +140,34 @@ class ConfigTests(unittest.TestCase):
     def test_customers_merge_with_defaults(self):
         with self.clean_env():
             config = load_config(["--customers", "edenor=3500000"])
-        self.assertEqual(config.customers["edenor"], 3_500_000)
-        self.assertEqual(config.customers["edesur"], 2_700_000)
         self.assertEqual(config.thresholds["edenor"].warn, 350)
+        self.assertEqual(config.thresholds["edesur"].warn, 270)
 
     def test_customers_from_json(self):
         path = self.write_json({"customers": {"edelap": 500000, "edenor": 4000000}})
         with self.clean_env(TUPA_CONFIG=path):
             config = load_config([])
-        self.assertEqual(config.customers["edelap"], 500_000)
         self.assertEqual(config.thresholds["edelap"].disaster, 25_000)
+        self.assertEqual(config.thresholds["edenor"].disaster, 200_000)
 
     def test_levels_from_json_and_env(self):
         path = self.write_json({"levels": [0.001, 0.01, 0.1]})
         with self.clean_env(TUPA_CONFIG=path):
             config = load_config([])
-        self.assertEqual(config.levels, (0.001, 0.01, 0.1))
         self.assertEqual(config.thresholds["edenor"].warn, 3_400)
 
         with self.clean_env(TUPA_LEVELS="0.0002,0.002,0.02"):
             config = load_config([])
-        self.assertEqual(config.levels, (0.0002, 0.002, 0.02))
         self.assertEqual(config.thresholds["edelap"].high, 800)
 
     def test_demand_levels(self):
         path = self.write_json({"demand_levels": [0.05, 0.15, 0.30]})
         with self.clean_env(TUPA_CONFIG=path):
             config = load_config([])
-        self.assertEqual(config.demand_levels, (0.05, 0.15, 0.30))
         self.assertEqual(config.demand_thresholds.high, 0.15)
         with self.clean_env(TUPA_DEMAND_LEVELS="0.01,0.02,0.03"):
             config = load_config(["--demand-levels", "0.02,0.04,0.06"])
-        self.assertEqual(config.demand_levels, (0.02, 0.04, 0.06))
+        self.assertEqual(config.demand_thresholds.high, 0.04)
 
     def test_invalid_thresholds_exits_two(self):
         for value in ("0.1,0.01,0.001", "0.1,0.2", "0,0.1,0.2", "0.1,0.2,2"):
@@ -234,13 +218,13 @@ class ConfigTests(unittest.TestCase):
             config = load_config([])
         self.assertEqual(str(config.tz), "UTC")
 
-        with self.clean_env(TUPA_TZ="-03:00"):
-            config = load_config([])
-        self.assertEqual(config.tz.utcoffset(None), timedelta(hours=-3))
+        with self.clean_env(TUPA_TZ="-03:00"), self.quiet_error(), self.assertRaises(SystemExit) as ctx:
+            load_config([])
+        self.assertEqual(ctx.exception.code, 2)
 
-        with self.clean_env(TUPA_TZ="UTC"):
-            config = load_config(["--tz", "+02:00"])
-        self.assertEqual(config.tz.utcoffset(None), timedelta(hours=2))
+        with self.clean_env(TUPA_TZ="UTC"), self.quiet_error(), self.assertRaises(SystemExit) as ctx:
+            load_config(["--tz", "+02:00"])
+        self.assertEqual(ctx.exception.code, 2)
 
         path = self.write_json({"tz": "UTC"})
         with self.clean_env(TUPA_CONFIG=path):
@@ -251,12 +235,12 @@ class ConfigTests(unittest.TestCase):
             load_config(["--tz", "Mars/Olympus"])
         self.assertEqual(ctx.exception.code, 2)
 
-    def test_string_boolean_strict_with_unknown_key(self):
-        path = self.write_json({"strict": "false", "nope": 1})
-        with self.clean_env(TUPA_CONFIG=path), self.assertLogs("tupa.config", level="WARNING"):
+    def test_strict_key_is_unknown_and_ignored(self):
+        path = self.write_json({"strict": True, "nope": 1})
+        with self.clean_env(TUPA_CONFIG=path), self.assertLogs("tupa.config", level="WARNING") as logs:
             config = load_config([])
-        self.assertFalse(config.strict)
         self.assertEqual(config.ttl, 60.0)
+        self.assertTrue(any("strict" in m for m in logs.output))
 
     def test_invalid_number_exits_two(self):
         with self.clean_env(), self.quiet_error(), self.assertRaises(SystemExit) as ctx:
@@ -269,7 +253,6 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.config_path, str(self.json))
         self.assertEqual(config.members, ("edenor", "edesur"))
         self.assertEqual(config.ttl, 60.0)
-        self.assertFalse(config.strict)
         self.assertTrue(any("using defaults" in m for m in logs.output))
 
     def test_missing_config_from_env_uses_defaults(self):
@@ -286,54 +269,12 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.members, ("edenor", "edesur"))
         self.assertTrue(any("using defaults" in m for m in logs.output))
 
-    def test_invalid_json_strict_exits_two(self):
-        self.json.write_text("not json", encoding="utf-8")
-        with (
-            self.clean_env(),
-            self.quiet_error(),
-            self.assertLogs("tupa.config", level="ERROR"),
-            self.assertRaises(SystemExit) as ctx,
-        ):
-            load_config(["--config", str(self.json), "--strict"])
-        self.assertEqual(ctx.exception.code, 2)
-
-    def test_invalid_strict_with_invalid_json_exits_two(self):
-        self.json.write_text("not json", encoding="utf-8")
-        with self.clean_env(TUPA_CONFIG=str(self.json), TUPA_STRICT="maybe"), self.quiet_error():
-            with self.assertRaises(SystemExit) as ctx:
-                load_config([])
-        self.assertEqual(ctx.exception.code, 2)
-
     def test_unknown_json_key_warns_and_ignores(self):
         path = self.write_json({"nope": 1, "ttl": 15})
         with self.clean_env(), self.assertLogs("tupa.config", level="WARNING") as logs:
             config = load_config(["--config", path])
         self.assertEqual(config.ttl, 15.0)
         self.assertTrue(any("unknown config keys" in m for m in logs.output))
-
-    def test_unknown_json_key_strict_exits_two(self):
-        path = self.write_json({"nope": 1})
-        with (
-            self.clean_env(),
-            self.quiet_error(),
-            self.assertLogs("tupa.config", level="ERROR"),
-            self.assertRaises(SystemExit) as ctx,
-        ):
-            load_config(["--config", path, "--strict"])
-        self.assertEqual(ctx.exception.code, 2)
-
-    def test_strict_from_env_and_json(self):
-        self.json.write_text("not json", encoding="utf-8")
-        with self.clean_env(TUPA_CONFIG=str(self.json), TUPA_STRICT="true"), self.quiet_error():
-            with self.assertRaises(SystemExit):
-                load_config([])
-        path = self.write_json({"strict": True})
-        with self.clean_env(TUPA_CONFIG=path):
-            config = load_config([])
-        self.assertTrue(config.strict)
-        with self.clean_env(TUPA_STRICT="true"):
-            config = load_config([])
-        self.assertTrue(config.strict)
 
     def test_unknown_member_exits_two(self):
         with self.clean_env(), self.quiet_error(), self.assertRaises(SystemExit) as ctx:

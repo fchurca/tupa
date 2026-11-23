@@ -50,11 +50,7 @@ class Snapshot:
                 status = self.collector()
             except Exception:
                 log.exception("collection failed")
-                with self._lock:
-                    if self._status is None:
-                        raise
-                    self._expires = time.monotonic() + min(self.ttl, 10.0)
-                    return self._status
+                raise
             with self._lock:
                 self._status = status
                 self._expires = time.monotonic() + self.ttl
@@ -117,7 +113,6 @@ def run_server(config: Config) -> None:
         config.sources[source_id]
         for member in config.members
         for source_id in config.member_sources.get(member, ())
-        if source_id in config.sources
     ]
     server = ThreadingHTTPServer((config.host, config.port), Handler)
     server.daemon_threads = True

@@ -36,35 +36,20 @@ class CommonTests(unittest.TestCase):
         self.assertEqual(data["cortesProgramados"][1]["partido"], "CA\u00d1UELAS")
         self.assertEqual(len(data["cortesProgramados"]), 2)
 
-    def test_decodes_unicode_escape_sequences(self):
-        data = decode_js_data('var data = {"x": "a\\u00f1o", "y": "\\u2603"}')
-        self.assertEqual(data, {"x": "año", "y": "☃"})
-        with self.assertRaises(ValueError):
-            decode_js_data('var data = {"x": "\\u00f"}')
-
-    def test_decodes_surrogate_pairs_and_replaces_lone_surrogates(self):
-        data = decode_js_data(
-            'var data = {"pair": "\\uD83D\\uDE00", "lone": "\\uD800x"}'
-        )
-        self.assertEqual(data, {"pair": "😀", "lone": "\ufffdx"})
-        self.assertEqual(data["pair"].encode("utf-8"), "😀".encode("utf-8"))
+    def test_rejects_unicode_escapes(self):
+        with self.assertRaisesRegex(ValueError, "unsupported escape"):
+            decode_js_data('var data = {"x": "a\\u00f1o"}')
 
     def test_trailing_comma_and_missing_assignment(self):
         self.assertEqual(decode_js_data("var data = { a: 1, }"), {"a": 1})
         with self.assertRaises(ValueError):
             decode_js_data("nothing here")
 
-    def test_parses_js_escapes_and_exponents(self):
+    def test_parses_js_escapes_and_numbers(self):
         data = decode_js_data(
-            r'var data = {"hex": "a\x41b", "nl": "one\ntwo", "exp": 1e3, "frac": .5}'
+            r'var data = {"nl": "one\ntwo", "exp": 1e3, "frac": .5}'
         )
-        self.assertEqual(data, {"hex": "aAb", "nl": "one\ntwo", "exp": 1000.0, "frac": 0.5})
-
-    def test_rejects_excessive_nesting(self):
-        depth = 100
-        text = "var data = " + "[" * depth + "]" * depth
-        with self.assertRaisesRegex(ValueError, "nesting"):
-            decode_js_data(text)
+        self.assertEqual(data, {"nl": "one\ntwo", "exp": 1000.0, "frac": 0.5})
 
     def test_legacy_context_keeps_verification(self):
         context = legacy_tls_context()
@@ -75,12 +60,11 @@ class CommonTests(unittest.TestCase):
 
     def test_parse_count(self):
         self.assertEqual(parse_count("3.505.956"), 3505956)
-        self.assertEqual(parse_count("1,234"), 1234)
         self.assertEqual(parse_count("1.500"), 1500)
-        self.assertEqual(parse_count("1.5"), 1)
-        self.assertEqual(parse_count("1,5"), 1)
         self.assertEqual(parse_count(138), 138)
         self.assertEqual(parse_count(138.5), 138)
+        self.assertIsNone(parse_count("1,234"))
+        self.assertIsNone(parse_count("1.5"))
         self.assertIsNone(parse_count(-1))
         self.assertIsNone(parse_count(float("nan")))
         self.assertIsNone(parse_count(True))
