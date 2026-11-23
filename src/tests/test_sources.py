@@ -103,6 +103,44 @@ class SourceTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "response exceeds 1000000 bytes"):
                 fetch_text("https://example.test/data", timeout=1.0)
 
+    def test_fetch_decodes_chunked_response(self):
+        body = (
+            b'[{"fecha":"2026-01-01T00:00:00-0300","demHoy":1,'
+            b'"demAyer":2,"demSemanaAnt":3}]'
+        )
+
+        class Chunked(BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+
+            def do_GET(self):
+                self.send_response(200)
+                self.send_header("Transfer-Encoding", "chunked")
+                self.end_headers()
+                for start in range(0, len(body), 16):
+                    piece = body[start : start + 16]
+                    self.wfile.write(f"{len(piece):X}\r\n".encode("ascii"))
+                    self.wfile.write(piece)
+                    self.wfile.write(b"\r\n")
+                self.wfile.write(b"0\r\n\r\n")
+                self.wfile.flush()
+
+            def log_message(self, *args):
+                return
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Chunked)
+        server.daemon_threads = True
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            text = fetch_text(
+                f"http://127.0.0.1:{server.server_port}/", timeout=2.0
+            )
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+        self.assertEqual(text, body.decode())
+
     def test_edenor_severe_outages(self):
         high, _ = self.fetch("enre_edenor", "edenor_high.js")
         disaster, _ = self.fetch("enre_edenor", "edenor_disaster.js")

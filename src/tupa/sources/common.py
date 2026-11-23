@@ -264,24 +264,19 @@ def fetch_content(
                 if sock is not None and deadline is not None:
                     sock.settimeout(_remaining(deadline, remaining))
                 try:
-                    stream = getattr(response, "fp", None)
-                    read_chunk = getattr(stream, "read1", None)
-                    if read_chunk is None:
-                        raw = response.read(max_bytes + 1)
-                    else:
-                        chunks: list[bytes] = []
-                        total = 0
-                        while total <= max_bytes:
-                            if deadline is not None and time.monotonic() >= deadline:
-                                raise FetchTimeout(
-                                    f"fetch deadline after {timeout:g} seconds"
-                                )
-                            chunk = read_chunk(min(8192, max_bytes + 1 - total))
-                            if not chunk:
-                                break
-                            chunks.append(chunk)
-                            total += len(chunk)
-                        raw = b"".join(chunks)
+                    chunks: list[bytes] = []
+                    total = 0
+                    while total <= max_bytes:
+                        if deadline is not None and time.monotonic() >= deadline:
+                            raise FetchTimeout(
+                                f"fetch deadline after {timeout:g} seconds"
+                            )
+                        chunk = response.read(min(8192, max_bytes + 1 - total))
+                        if not chunk:
+                            break
+                        chunks.append(chunk)
+                        total += len(chunk)
+                    raw = b"".join(chunks)
                 except (OSError, http.client.IncompleteRead) as exc:
                     if deadline is not None and time.monotonic() >= deadline:
                         raise FetchTimeout(
