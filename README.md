@@ -65,9 +65,9 @@ tag with the same `vX.Y.Z` value.
 
 ### Implemented sources
 
-Edenor and Edesur are supported through ENRE outage data and CAMMESA demand
-data; Edelap is supported through OCEBA outage data. TUPA is an automatable
-aggregator, not a replacement for independent monitoring services.
+Edenor, Edesur and Edelap are supported through CAMMESA demand data, with ENRE
+outage data for Edenor/Edesur and OCEBA outage data for Edelap. TUPA is an
+automatable aggregator, not a replacement for independent monitoring services.
 
 ### Topology
 

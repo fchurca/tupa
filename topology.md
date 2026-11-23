@@ -8,6 +8,7 @@
 - CAMMESA
   - Role: demand data by region
   - TUPA endpoint: `https://api.cammesa.com/demanda-svc/demanda/`
+  - TUPA regions: Edenor `1077`, Edesur `1078`, Edelap `1943`
   - Documentation: `https://cammesaweb.cammesa.com/informes-y-estadisticas/`
 - OCEBA
   - Role: provincial regulator publishing EDELAP interruption data

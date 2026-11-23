@@ -43,6 +43,7 @@ class OutputTests(unittest.TestCase):
     def test_render_html_sources_details(self):
         sources = [
             DEFAULT_SOURCES["cammesa_edenor"],
+            DEFAULT_SOURCES["cammesa_edelap"],
             DEFAULT_SOURCES["enre_edenor"],
         ]
         payload = render_html({"updated": "now", "members": {}}, sources=sources)
@@ -53,6 +54,7 @@ class OutputTests(unittest.TestCase):
         for heading in ("Nombre", "API", "Documentación"):
             self.assertIn(f"<th>{heading}</th>".encode(), payload)
         self.assertIn(b"CAMMESA Edenor (1077)", payload)
+        self.assertIn(b"CAMMESA Edelap (1943)", payload)
         self.assertIn(b"ENRE Edenor", payload)
         self.assertIn(DEFAULT_SOURCES["enre_edenor"].docs_url.encode(), payload)
         self.assertNotIn(b"ENRE Edesur", payload)

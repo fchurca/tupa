@@ -178,6 +178,26 @@ class SourceTests(unittest.TestCase):
         self.assertEqual(mock.call_args.args[0].full_url, cammesa.url_for(1077))
         self.assertEqual(mock.call_args.kwargs["timeout"], 4.0)
 
+    def test_cammesa_edelap_uses_region_1943(self):
+        spec = DEFAULT_SOURCES["cammesa_edelap"]
+        self.assertEqual(spec.member, "edelap")
+        self.assertEqual(spec.kind, "cammesa_demand")
+        self.assertEqual(spec.region, 1943)
+        self.assertEqual(spec.label, "CAMMESA Edelap (1943)")
+        with patch(
+            "tupa.sources.common.urlopen", return_value=response("cammesa_high.json")
+        ) as mock:
+            member = fetch_source(
+                spec,
+                timeout=4.0,
+                thresholds=DEFAULT_THRESHOLDS,
+                demand_thresholds=DEMAND_THRESHOLDS,
+                tz=ART_TZ,
+            )
+        self.assertEqual(member.status, "high")
+        self.assertIn("CAMMESA región 1943", member.comment)
+        self.assertEqual(mock.call_args.args[0].full_url, cammesa.url_for(1943))
+
     def test_cammesa_custom_thresholds(self):
         spec = DEFAULT_SOURCES["cammesa_edenor"]
         thresholds = Thresholds(0.25, 0.40, 0.50)

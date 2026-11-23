@@ -67,9 +67,10 @@ creá una etiqueta de Git con el mismo valor `vX.Y.Z`.
 
 ### Fuentes implementadas
 
-Edenor y Edesur se obtienen de los cortes de ENRE y la demanda de CAMMESA;
-Edelap se obtiene de los cortes de OCEBA. TUPA es un agregador automatizable, no
-un reemplazo de los servicios de monitoreo independientes.
+Edenor, Edesur y Edelap se obtienen de la demanda de CAMMESA; Edenor y Edesur
+también de los cortes de ENRE, y Edelap también de los cortes de OCEBA. TUPA es
+un agregador automatizable, no un reemplazo de los servicios de monitoreo
+independientes.
 
 ### Topología
 

@@ -87,6 +87,7 @@ configurable.
     "enre_edesur",
     "cammesa_edenor",
     "cammesa_edesur",
+    "cammesa_edelap",
     "oceba_edelap"
   ]
 }
@@ -107,7 +108,7 @@ Built-in members and sources:
 | --- | --- |
 | Edenor | ENRE outages, CAMMESA demand (region 1077) |
 | Edesur | ENRE outages, CAMMESA demand (region 1078) |
-| Edelap | OCEBA outages |
+| Edelap | CAMMESA demand (region 1943), OCEBA outages |
 
 Source kinds:
 

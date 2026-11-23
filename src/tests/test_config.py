@@ -10,7 +10,7 @@ from unittest.mock import patch
 from tupa.config import load_config
 
 ALL_MEMBERS = ("edenor", "edesur", "edelap")
-ALL_SOURCE_COUNT = 5
+ALL_SOURCE_COUNT = 6
 
 
 class ConfigTests(unittest.TestCase):
@@ -45,10 +45,19 @@ class ConfigTests(unittest.TestCase):
             config = load_config([])
         self.assertEqual(config.members, ALL_MEMBERS)
         self.assertEqual(config.member_sources["edenor"], ("cammesa_edenor", "enre_edenor"))
-        self.assertEqual(config.member_sources["edelap"], ("oceba_edelap",))
+        self.assertEqual(
+            config.member_sources["edelap"], ("cammesa_edelap", "oceba_edelap")
+        )
         self.assertEqual(
             set(config.sources),
-            {"enre_edenor", "enre_edesur", "cammesa_edenor", "cammesa_edesur", "oceba_edelap"},
+            {
+                "enre_edenor",
+                "enre_edesur",
+                "cammesa_edenor",
+                "cammesa_edesur",
+                "cammesa_edelap",
+                "oceba_edelap",
+            },
         )
         self.assertFalse(config.serve)
         self.assertEqual((config.host, config.port), ("127.0.0.1", 8000))
@@ -119,6 +128,7 @@ class ConfigTests(unittest.TestCase):
             config = load_config([])
         self.assertEqual(config.member_sources["edenor"], ("cammesa_edenor",))
         self.assertEqual(config.member_sources["edesur"], ("cammesa_edesur", "enre_edesur"))
+        self.assertEqual(config.member_sources["edelap"], ())
 
     def test_custom_source_definitions_are_rejected(self):
         path = self.write_json(

@@ -47,6 +47,15 @@ DEFAULT_SOURCES: dict[str, SourceSpec] = {
         docs_url="https://cammesaweb.cammesa.com/informes-y-estadisticas/",
         region=1078,
     ),
+    "cammesa_edelap": SourceSpec(
+        name="cammesa_edelap",
+        kind="cammesa_demand",
+        member="edelap",
+        url=cammesa.url_for(1943),
+        label="CAMMESA Edelap (1943)",
+        docs_url="https://cammesaweb.cammesa.com/informes-y-estadisticas/",
+        region=1943,
+    ),
     "oceba_edelap": SourceSpec(
         name="oceba_edelap",
         kind="oceba_outages",
@@ -60,7 +69,7 @@ DEFAULT_SOURCES: dict[str, SourceSpec] = {
 DEFAULT_MEMBERS: dict[str, tuple[str, ...]] = {
     "edenor": ("cammesa_edenor", "enre_edenor"),
     "edesur": ("cammesa_edesur", "enre_edesur"),
-    "edelap": ("oceba_edelap",),
+    "edelap": ("cammesa_edelap", "oceba_edelap"),
 }
 
 
