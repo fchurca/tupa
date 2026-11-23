@@ -1,17 +1,13 @@
 from __future__ import annotations
 
-import base64
-import hashlib
 import html
 import json
 import re
 from collections import Counter
 from collections.abc import Sequence
 
-from .model import STATUSES, SourceSpec
+from .model import STATUS_ORDER, STATUSES, SourceSpec
 from .version import get_version
-
-STATUS_ORDER = ("operational", "warn", "high", "disaster", "unknown")
 
 STATUS_LABELS = {
     "operational": "Operativo",
@@ -172,41 +168,23 @@ _STYLE = """    <style>
       }
       a { color: #8ba4ff; text-decoration: none; }
       a:hover { text-decoration: underline; }
-      .sources-button, .dialog-ok {
+      .sources {
+        margin: 0 auto;
+        max-width: 880px;
+        color: var(--muted);
+        font-size: 0.78rem;
+      }
+      .sources summary {
+        width: fit-content;
         padding: 6px 12px;
         border: 1px solid var(--border);
         border-radius: 999px;
-        background: rgba(139, 164, 255, 0.12);
         color: var(--text);
         cursor: pointer;
-        font: inherit;
-        font-size: 0.78rem;
       }
-      .sources-button:hover, .dialog-ok:hover { border-color: #8ba4ff; }
-      .sources-dialog {
-        width: min(880px, calc(100% - 32px));
-        max-height: min(80vh, 720px);
-        padding: 0;
-        border: 1px solid var(--border);
-        border-radius: 18px;
-        background: #111a2e;
-        color: var(--text);
-        box-shadow: 0 24px 70px rgba(0, 0, 0, 0.5);
-      }
-      .sources-dialog::backdrop {
-        background: rgba(5, 8, 18, 0.72);
-        backdrop-filter: blur(3px);
-      }
-      .dialog-head {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 16px;
-        padding: 18px 22px;
-        border-bottom: 1px solid var(--border);
-      }
-      .dialog-head h2 { font-size: 1.1rem; }
-      .table-scroll { max-height: calc(80vh - 80px); overflow: auto; }
+      .sources summary:hover { border-color: #8ba4ff; }
+      .sources table { margin-top: 12px; }
+      .table-scroll { overflow: auto; }
       table { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
       th, td {
         padding: 11px 16px;
@@ -231,23 +209,8 @@ _STYLE = """    <style>
       }
     </style>"""
 
-_DOCS_BY_KIND = {
-    "enre_outages": "https://www.enre.gov.ar/mapacortes/index.html",
-    "cammesa_demand": "https://cammesaweb.cammesa.com/informes-y-estadisticas/",
-}
-
-
-def _source_label(spec: SourceSpec) -> str:
-    base = "ENRE" if spec.kind == "enre_outages" else "CAMMESA"
-    region = f" ({spec.region})" if spec.region else ""
-    return f"{base} {spec.member.capitalize()}{region}"
-
-
 def _source_rows(specs: Sequence[SourceSpec]) -> list[tuple[str, str, str]]:
-    return [
-        (_source_label(spec), spec.url, _DOCS_BY_KIND.get(spec.kind, ""))
-        for spec in specs
-    ]
+    return [(spec.label, spec.url, spec.docs_url) for spec in specs]
 
 
 def _sources_table(specs: Sequence[SourceSpec]) -> str:
@@ -269,21 +232,7 @@ def _sources_table(specs: Sequence[SourceSpec]) -> str:
         "      </table>\n"
     )
 
-_SCRIPT_BODY = """
-        const sourcesButton = document.getElementById("sources-button");
-        const sourcesDialog = document.getElementById("sources-dialog");
-        sourcesButton.addEventListener("click", () => sourcesDialog.showModal());
-        sourcesDialog.addEventListener("close", () => sourcesButton.focus());
-      """
-_SCRIPT = f"    <script>{_SCRIPT_BODY}</script>"
-
-_SCRIPT_HASH = "sha256-" + base64.b64encode(
-    hashlib.sha256(_SCRIPT_BODY.encode("utf-8")).digest()
-).decode("ascii")
-_CSP = (
-    "default-src 'none'; style-src 'unsafe-inline'; "
-    f"script-src '{_SCRIPT_HASH}'; connect-src 'none'; base-uri 'none'"
-)
+_CSP = "default-src 'none'; style-src 'unsafe-inline'; connect-src 'none'; base-uri 'none'"
 
 
 def _escape(value: object) -> str:
@@ -367,21 +316,16 @@ def render_html(status: dict, *, sources: Sequence[SourceSpec]) -> bytes:
         "    </main>\n"
         "    <footer>\n"
         '      <span>Los datos son agregados; verificá las decisiones críticas con las fuentes primarias.</span>\n'
-        '      <button type="button" class="sources-button" id="sources-button" aria-haspopup="dialog">Lista de fuentes</button>\n'
+        '      <details class="sources">\n'
+        '        <summary>Lista de fuentes</summary>\n'
+        '        <div class="table-scroll">\n'
+        f"{_sources_table(sources)}"
+        '        </div>\n'
+        '      </details>\n'
         f'      <span class="version">v{version}</span>\n'
         '      <a href="/api">API JSON</a>\n'
         '    </footer>\n'
         '  </div>\n'
-        '  <dialog id="sources-dialog" class="sources-dialog" aria-labelledby="sources-title">\n'
-        '    <div class="dialog-head">\n'
-        '      <h2 id="sources-title">Lista de fuentes</h2>\n'
-        '      <form method="dialog"><button class="dialog-ok" value="OK">OK</button></form>\n'
-        '    </div>\n'
-        '    <div class="table-scroll">\n'
-        f"{_sources_table(sources)}"
-        '    </div>\n'
-        '  </dialog>\n'
-        f"{_SCRIPT}\n"
         "</body>\n"
 
         "</html>\n"

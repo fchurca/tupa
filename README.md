@@ -6,8 +6,6 @@ systems.
 
 It is named after Tupã, the Guaraní spirit of lightning, thunder, and storms. ⚡
 
-> **Work in progress:** This project is in an exploratory stage.
-
 ## Philosophy
 
 In priority order:
@@ -24,13 +22,13 @@ In priority order:
 ## Design
 
 TUPA runs standalone or from cron, writing JSON to stdout. Members are
-selectable via arguments, environment, or JSON configuration and default to all.
-Each member combines several datasources and reports the worst known status.
-The output can be used directly or piped to a file and served; individual
-consumers are expected to know to select the members relevant to them. See
-[example.json](example.json). In daemon mode, TUPA serves an HTML dashboard at
-`/` and JSON at `/api`. The dashboard sources modal shows only sources active in
-the running instance.
+selectable via named arguments, environment, or JSON configuration and default
+to all. Each member combines several datasources and reports the worst known
+status. The output can be used directly or piped to a file and served;
+individual consumers are expected to know to select the members relevant to
+them. See [example.json](example.json). In daemon mode, TUPA serves an HTML
+dashboard at `/` and JSON at `/api`. The dashboard sources list shows only
+sources active in the running instance.
 
 Configuration: [config.md](config.md). Most users should not need to change
 anything; defaults are intended to work. Normally only the listening address and
@@ -68,12 +66,13 @@ tag with the same `vX.Y.Z` value.
 ### Implemented sources
 
 Edenor and Edesur are supported through ENRE outage data and CAMMESA demand
-data. TUPA is an automatable aggregator, not a replacement for independent
-monitoring services.
+data; Edelap is supported through OCEBA outage data. TUPA is an automatable
+aggregator, not a replacement for independent monitoring services.
 
 ### Topology
 
-Upstream context lives in [topology.md](topology.md) and [diagram.pu](diagram.pu).
+Implemented upstream context lives in [topology.md](topology.md) and
+[diagram.pu](diagram.pu).
 
 ### Status
 
@@ -83,14 +82,11 @@ A `member` carries a `status` (`operational`, `warn`, `high`,
 own `updated` timestamp and a `members` map keyed by member name. Timestamps
 are ISO 8601 / RFC 3339 strings. See the [CDDL schema](status.cddl).
 
-ENRE only publishes a time of day in Argentina Time (ART): TUPA pairs it with
-the file's HTTP `Last-Modified` date and converts it to the configured output
-timezone. Without that header, `updated` records when TUPA observed the data
-instead of assuming a date. All timestamps are normalized to the configured
-timezone (Argentina Time by default).
-
-Planned outages are outages: they use the same severity thresholds as any other
-outage.
+ENRE and OCEBA publish only a time of day in Argentina Time (ART); TUPA
+reconstructs the date from upstream metadata or the current ART date and
+normalizes every timestamp to the configured output timezone. See
+[config.md](config.md) for details. Planned outages use the same severity
+thresholds as any other outage.
 
 ## Contributing
 
@@ -111,4 +107,5 @@ respective terms.
 
 * **ENRE TLS:** only legacy static-RSA TLS 1.2; TUPA uses `@SECLEVEL=1` for ENRE only, with certificate checks still on.
 * **ENRE API(n't):** no API — data lives in generated `data_EDN.js` / `data_EDS.js`.
+* **DNS trust:** TUPA uses the OS resolver and follows upstream redirects without filtering resolved addresses. Prefer a DNSSEC-validating resolver and restrict egress where that matters.
 

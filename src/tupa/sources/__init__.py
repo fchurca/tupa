@@ -4,10 +4,11 @@ from collections.abc import Mapping
 from datetime import tzinfo
 
 from ..model import Member, SourceSpec
-from ..sources.common import Thresholds
-from . import cammesa
+from . import cammesa, oceba
 from .cammesa import fetch_demand
+from .common import Thresholds
 from .enre import fetch_enre
+from .oceba import fetch_oceba
 
 DEFAULT_SOURCES: dict[str, SourceSpec] = {
     "enre_edenor": SourceSpec(
@@ -15,6 +16,8 @@ DEFAULT_SOURCES: dict[str, SourceSpec] = {
         kind="enre_outages",
         member="edenor",
         url="https://www.enre.gov.ar/paginacorte/js/data_EDN.js",
+        label="ENRE Edenor",
+        docs_url="https://www.enre.gov.ar/mapacortes/index.html",
         empresa="EDENOR",
     ),
     "enre_edesur": SourceSpec(
@@ -22,6 +25,8 @@ DEFAULT_SOURCES: dict[str, SourceSpec] = {
         kind="enre_outages",
         member="edesur",
         url="https://www.enre.gov.ar/paginacorte/js/data_EDS.js",
+        label="ENRE Edesur",
+        docs_url="https://www.enre.gov.ar/mapacortes/index.html",
         empresa="EDESUR",
     ),
     "cammesa_edenor": SourceSpec(
@@ -29,6 +34,8 @@ DEFAULT_SOURCES: dict[str, SourceSpec] = {
         kind="cammesa_demand",
         member="edenor",
         url=cammesa.url_for(1077),
+        label="CAMMESA Edenor (1077)",
+        docs_url="https://cammesaweb.cammesa.com/informes-y-estadisticas/",
         region=1077,
     ),
     "cammesa_edesur": SourceSpec(
@@ -36,13 +43,24 @@ DEFAULT_SOURCES: dict[str, SourceSpec] = {
         kind="cammesa_demand",
         member="edesur",
         url=cammesa.url_for(1078),
+        label="CAMMESA Edesur (1078)",
+        docs_url="https://cammesaweb.cammesa.com/informes-y-estadisticas/",
         region=1078,
+    ),
+    "oceba_edelap": SourceSpec(
+        name="oceba_edelap",
+        kind="oceba_outages",
+        member="edelap",
+        url=oceba.URL,
+        label="OCEBA Edelap",
+        docs_url=oceba.DOCS_URL,
     ),
 }
 
 DEFAULT_MEMBERS: dict[str, tuple[str, ...]] = {
     "edenor": ("cammesa_edenor", "enre_edenor"),
     "edesur": ("cammesa_edesur", "enre_edesur"),
+    "edelap": ("oceba_edelap",),
 }
 
 
@@ -60,6 +78,14 @@ def fetch_source(
             name=spec.member,
             empresa=spec.empresa,
             url=spec.url,
+            timeout=timeout,
+            thresholds=thresholds,
+            tz=tz,
+            deadline=deadline,
+        )
+    if spec.kind == "oceba_outages":
+        return fetch_oceba(
+            spec=spec,
             timeout=timeout,
             thresholds=thresholds,
             tz=tz,

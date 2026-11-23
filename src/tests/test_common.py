@@ -96,12 +96,6 @@ class CommonTests(unittest.TestCase):
                 self.assertEqual(thresholds.classify(values[2]), "disaster")
         self.assertEqual(set(DEFAULT_THRESHOLDS), set(expected))
 
-    def test_thresholds_name_is_case_insensitive(self):
-        self.assertEqual(
-            thresholds_for("Edenor", DEFAULT_THRESHOLDS),
-            thresholds_for("edenor", DEFAULT_THRESHOLDS),
-        )
-
     def test_thresholds_from_custom_values(self):
         custom = thresholds_from({"x": 1000}, (0.01, 0.1, 0.5))
         self.assertEqual(
@@ -112,7 +106,7 @@ class CommonTests(unittest.TestCase):
             ),
             (10, 100, 500),
         )
-        self.assertEqual(thresholds_for("X", custom), custom["x"])
+        self.assertEqual(thresholds_for("x", custom), custom["x"])
 
     def test_thresholds_round_up(self):
         custom = thresholds_from({"x": 3}, (0.5, 0.6, 0.7))

@@ -36,7 +36,7 @@ status 2.
 
 ```json
 {
-  "selected_members": ["edenor", "edesur"],
+  "selected_members": ["edenor", "edesur", "edelap"],
   "serve": false,
   "host": "127.0.0.1",
   "port": 8000,
@@ -62,7 +62,7 @@ python3 -m tupa --config ../tupa.json --serve
 The same settings can be supplied without a file:
 
 ```sh
-export TUPA_MEMBERS=edenor,edesur
+export TUPA_MEMBERS=edenor,edesur,edelap
 export TUPA_TTL=30
 export TUPA_CUSTOMERS=edelap=500000
 export TUPA_LEVELS=0.0002,0.002,0.02
@@ -86,14 +86,15 @@ configurable.
     "enre_edenor",
     "enre_edesur",
     "cammesa_edenor",
-    "cammesa_edesur"
+    "cammesa_edesur",
+    "oceba_edelap"
   ]
 }
 ```
 
 - `members` enables built-in members; `sources` enables built-in sources.
-- `selected_members` chooses which enabled members to query (CLI `MEMBER...`,
-  `-m`/`--member` and `TUPA_MEMBERS` do the same).
+- `selected_members` chooses which enabled members to query (`-m`/`--member`
+  and `TUPA_MEMBERS` do the same).
 - Empty lists mean "all built-ins". Disabling a source removes it from its
   member; a member with no enabled sources reports `unknown`.
 - Selecting a member that is not enabled is a configuration error.
@@ -106,6 +107,7 @@ Built-in members and sources:
 | --- | --- |
 | Edenor | ENRE outages, CAMMESA demand (region 1077) |
 | Edesur | ENRE outages, CAMMESA demand (region 1078) |
+| Edelap | OCEBA outages |
 
 Source kinds:
 
@@ -115,6 +117,8 @@ Source kinds:
   baseline.
 - `cammesa_demand`: classifies by demand deficit against the lower of yesterday
   and the same weekday last week, using fixed regional CAMMESA endpoints.
+- `oceba_outages`: classifies by affected customers reported in OCEBA's EDELAP
+  interruption table, using the same `customers` and `levels` settings.
 
 A member's status is the **worst known** status of its sources, ignoring
 `unknown` unless every source is unknown. Each output comment is prefixed with
@@ -124,7 +128,7 @@ the source name.
 
 | Meaning | CLI | Environment | JSON key | Default |
 | --- | --- | --- | --- | --- |
-| Members to query | `MEMBER...`, `-m`, `--member` | `TUPA_MEMBERS` | `selected_members` | all enabled members |
+| Members to query | `-m`, `--member` | `TUPA_MEMBERS` | `selected_members` | all enabled members |
 | Enabled built-in members | — | — | `members` | all built-ins |
 | Enabled built-in sources | — | — | `sources` | all built-ins |
 | Run the HTTP daemon | `--serve` | `TUPA_SERVE` | `serve` | `false` |
@@ -170,8 +174,8 @@ Notes:
   after the TTL expires can take up to the timeout to respond. If collection
   fails, the request returns an error instead of stale data.
 - Redirects follow urllib defaults: at most 10 distinct URLs and 4 repeats of
-  the same URL. Redirects to loopback, private, link-local or reserved addresses
-  are rejected unless the original URL itself used such an address.
+  the same URL. TUPA does not filter resolved addresses; use a DNSSEC-validating
+  resolver and restrict egress if DNS or redirect trust matters in your deployment.
 - Invalid values exit with status 2 and an explanatory message.
 
 ## Timezone
@@ -185,22 +189,22 @@ and `local` explicitly select the host `TZ` instead, falling back to ART when
 configuration error. The container image includes `tzdata`.
 
 ENRE reports only a local time of day in ART; TUPA combines it with the file's HTTP
-`Last-Modified` date and converts it to the configured output timezone. Without
-that header, `updated` records when TUPA observed the data instead of assuming
-a date.
+`Last-Modified` date and converts it to the configured output timezone. OCEBA
+also reports only a time of day, so TUPA uses the current ART date. Without a
+usable date, `updated` records when TUPA observed the data instead of assuming
+one.
 
 ## HTTP endpoints
 
 In `--serve` mode, `/` renders a standalone HTML dashboard with a strict
 Content-Security-Policy and no external scripts, and `/api` returns the same
-status as JSON. `HEAD` is supported for both. The former `/status` and
-`/status.json` paths are not served.
+status as JSON. `HEAD` is supported for both.
 
-## ENRE severity thresholds
+## Outage severity thresholds
 
-Severity for ENRE outages is based on the number of customers reported without
-service, using rough published customer/household counts as baselines rather
-than population figures. Two settings control it:
+Severity for ENRE and OCEBA outages is based on the number of customers reported
+without service, using rough published customer/household counts as baselines
+rather than population figures. Two settings control it:
 
 - `customers`: `name=count` pairs. Supplied pairs are **merged** with the
   defaults, so you can override a single built-in member.
@@ -218,9 +222,6 @@ Default baselines and resulting thresholds:
 | Edenor | 3,400,000 | 340 | 17,000 | 170,000 |
 | Edesur | 2,700,000 | 270 | 13,500 | 135,000 |
 | Edelap | 400,000 | 40 | 2,000 | 20,000 |
-
-Edelap is kept as a built-in baseline for compatibility even though it has no
-implemented source.
 
 ## CAMMESA severity thresholds
 

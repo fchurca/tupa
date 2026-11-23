@@ -9,6 +9,9 @@ from unittest.mock import patch
 
 from tupa.config import load_config
 
+ALL_MEMBERS = ("edenor", "edesur", "edelap")
+ALL_SOURCE_COUNT = 5
+
 
 class ConfigTests(unittest.TestCase):
     def setUp(self):
@@ -28,12 +31,25 @@ class ConfigTests(unittest.TestCase):
     def quiet_error(self):
         return contextlib.redirect_stderr(io.StringIO())
 
+    def assert_exit_two(self, argv, *, env=None):
+        with (
+            self.clean_env(**(env or {})),
+            self.quiet_error(),
+            self.assertRaises(SystemExit) as ctx,
+        ):
+            load_config(argv)
+        self.assertEqual(ctx.exception.code, 2)
+
     def test_defaults(self):
         with self.clean_env():
             config = load_config([])
-        self.assertEqual(config.members, ("edenor", "edesur"))
+        self.assertEqual(config.members, ALL_MEMBERS)
         self.assertEqual(config.member_sources["edenor"], ("cammesa_edenor", "enre_edenor"))
-        self.assertEqual(set(config.sources), {"enre_edenor", "enre_edesur", "cammesa_edenor", "cammesa_edesur"})
+        self.assertEqual(config.member_sources["edelap"], ("oceba_edelap",))
+        self.assertEqual(
+            set(config.sources),
+            {"enre_edenor", "enre_edesur", "cammesa_edenor", "cammesa_edesur", "oceba_edelap"},
+        )
         self.assertFalse(config.serve)
         self.assertEqual((config.host, config.port), ("127.0.0.1", 8000))
         self.assertEqual((config.timeout, config.ttl, config.indent), (20.0, 60.0, 2))
@@ -117,26 +133,16 @@ class ConfigTests(unittest.TestCase):
                 }
             }
         )
-        with self.clean_env(TUPA_CONFIG=path), self.quiet_error(), self.assertRaises(SystemExit) as ctx:
-            load_config([])
-        self.assertEqual(ctx.exception.code, 2)
+        self.assert_exit_two([], env={"TUPA_CONFIG": path})
 
     def test_unknown_enabled_member_or_source_exits_two(self):
         for key, value in (("members", ["nope"]), ("sources", ["nope"])):
-            with (
-                self.subTest(key=key),
-                self.clean_env(),
-                self.quiet_error(),
-                self.assertRaises(SystemExit) as ctx,
-            ):
-                load_config(["--config", self.write_json({key: value})])
-            self.assertEqual(ctx.exception.code, 2)
+            with self.subTest(key=key):
+                self.assert_exit_two(["--config", self.write_json({key: value})])
 
     def test_selecting_disabled_member_exits_two(self):
         path = self.write_json({"members": ["edenor"], "selected_members": ["edesur"]})
-        with self.clean_env(TUPA_CONFIG=path), self.quiet_error(), self.assertRaises(SystemExit) as ctx:
-            load_config([])
-        self.assertEqual(ctx.exception.code, 2)
+        self.assert_exit_two([], env={"TUPA_CONFIG": path})
 
     def test_customers_merge_with_defaults(self):
         with self.clean_env():
@@ -172,43 +178,33 @@ class ConfigTests(unittest.TestCase):
 
     def test_invalid_thresholds_exits_two(self):
         for value in ("0.1,0.01,0.001", "0.1,0.2", "0,0.1,0.2", "0.1,0.2,2"):
-            with (
-                self.subTest(value=value),
-                self.clean_env(),
-                self.quiet_error(),
-                self.assertRaises(SystemExit) as ctx,
-            ):
-                load_config(["--levels", value])
-            self.assertEqual(ctx.exception.code, 2)
-        with self.clean_env(), self.quiet_error(), self.assertRaises(SystemExit) as ctx:
-            load_config(["--customers", "edenor=abc"])
-        self.assertEqual(ctx.exception.code, 2)
-        with self.clean_env(), self.quiet_error(), self.assertRaises(SystemExit) as ctx:
-            load_config(["--demand-levels", "0.5,0.1,0.2"])
-        self.assertEqual(ctx.exception.code, 2)
+            with self.subTest(value=value):
+                self.assert_exit_two(["--levels", value])
+        self.assert_exit_two(["--customers", "edenor=abc"])
+        self.assert_exit_two(["--demand-levels", "0.5,0.1,0.2"])
 
     def test_member_deduplication(self):
         with self.clean_env():
-            config = load_config(["--member", "edenor", "edenor"])
+            config = load_config(["--member", "edenor", "--member", "edenor"])
         self.assertEqual(config.members, ("edenor",))
 
     def test_empty_selections_fall_back_to_all(self):
         path = self.write_json({"selected_members": []})
         with self.clean_env(TUPA_CONFIG=path):
             config = load_config([])
-        self.assertEqual(config.members, ("edenor", "edesur"))
+        self.assertEqual(config.members, ALL_MEMBERS)
 
         for value in ("", "   "):
             with self.subTest(value=value), self.clean_env(TUPA_MEMBERS=value):
                 config = load_config([])
-            self.assertEqual(config.members, ("edenor", "edesur"))
+            self.assertEqual(config.members, ALL_MEMBERS)
 
     def test_empty_enable_lists_mean_all(self):
         path = self.write_json({"members": [], "sources": []})
         with self.clean_env(TUPA_CONFIG=path):
             config = load_config([])
-        self.assertEqual(set(config.members), {"edenor", "edesur"})
-        self.assertEqual(len(config.sources), 4)
+        self.assertEqual(set(config.members), set(ALL_MEMBERS))
+        self.assertEqual(len(config.sources), ALL_SOURCE_COUNT)
 
     def test_timezone_precedence_and_default(self):
         with self.clean_env():
@@ -228,22 +224,15 @@ class ConfigTests(unittest.TestCase):
             config = load_config([])
         self.assertEqual(str(config.tz), "UTC")
 
-        with self.clean_env(TUPA_TZ="-03:00"), self.quiet_error(), self.assertRaises(SystemExit) as ctx:
-            load_config([])
-        self.assertEqual(ctx.exception.code, 2)
-
-        with self.clean_env(TUPA_TZ="UTC"), self.quiet_error(), self.assertRaises(SystemExit) as ctx:
-            load_config(["--tz", "+02:00"])
-        self.assertEqual(ctx.exception.code, 2)
+        self.assert_exit_two([], env={"TUPA_TZ": "-03:00"})
+        self.assert_exit_two(["--tz", "+02:00"], env={"TUPA_TZ": "UTC"})
 
         path = self.write_json({"tz": "UTC"})
         with self.clean_env(TUPA_CONFIG=path):
             config = load_config([])
         self.assertEqual(str(config.tz), "UTC")
 
-        with self.clean_env(), self.quiet_error(), self.assertRaises(SystemExit) as ctx:
-            load_config(["--tz", "Mars/Olympus"])
-        self.assertEqual(ctx.exception.code, 2)
+        self.assert_exit_two(["--tz", "Mars/Olympus"])
 
     def test_default_config_json_in_working_directory(self):
         Path("config.json").write_text(json.dumps({"ttl": 15}), encoding="utf-8")
@@ -252,28 +241,26 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.ttl, 15.0)
 
     def test_invalid_number_exits_two(self):
-        with self.clean_env(), self.quiet_error(), self.assertRaises(SystemExit) as ctx:
-            load_config(["--port", "70000"])
-        self.assertEqual(ctx.exception.code, 2)
+        self.assert_exit_two(["--port", "70000"])
 
     def test_missing_config_uses_defaults(self):
         with self.clean_env(), self.assertLogs("tupa.config", level="INFO") as logs:
             config = load_config(["--config", str(self.json)])
-        self.assertEqual(config.members, ("edenor", "edesur"))
+        self.assertEqual(config.members, ALL_MEMBERS)
         self.assertEqual(config.ttl, 60.0)
         self.assertTrue(any("using defaults" in m for m in logs.output))
 
     def test_missing_config_from_env_uses_defaults(self):
         with self.clean_env(TUPA_CONFIG=str(self.json)), self.assertLogs("tupa.config", level="INFO"):
             config = load_config([])
-        self.assertEqual(config.members, ("edenor", "edesur"))
+        self.assertEqual(config.members, ALL_MEMBERS)
         self.assertEqual(config.ttl, 60.0)
 
     def test_invalid_json_warns_and_uses_defaults(self):
         self.json.write_text("not json", encoding="utf-8")
         with self.clean_env(), self.assertLogs("tupa.config", level="WARNING") as logs:
             config = load_config(["--config", str(self.json)])
-        self.assertEqual(config.members, ("edenor", "edesur"))
+        self.assertEqual(config.members, ALL_MEMBERS)
         self.assertTrue(any("using defaults" in m for m in logs.output))
 
     def test_unknown_json_key_warns_and_ignores(self):
@@ -284,6 +271,4 @@ class ConfigTests(unittest.TestCase):
         self.assertTrue(any("unknown config keys" in m for m in logs.output))
 
     def test_unknown_member_exits_two(self):
-        with self.clean_env(), self.quiet_error(), self.assertRaises(SystemExit) as ctx:
-            load_config(["nope"])
-        self.assertEqual(ctx.exception.code, 2)
+        self.assert_exit_two(["--member", "nope"])

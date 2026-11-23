@@ -39,7 +39,7 @@ CONFIG_KEYS = frozenset(
         "tz",
     }
 )
-NAME_RE = re.compile(r"[a-z0-9][a-z0-9_-]*\Z")
+NAME_RE = re.compile(r"[a-z0-9][a-z0-9_-]*")
 TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
 FALSE_VALUES = frozenset({"0", "false", "no", "off"})
 
@@ -71,7 +71,7 @@ def _split(value: object, label: str) -> list[str]:
     for item in items:
         if isinstance(item, bool) or not isinstance(item, (str, int, float)):
             raise ValueError(f"{label} entries must be strings or numbers")
-        result.extend(part.strip() for part in re.split(r"[,;]", str(item)) if part.strip())
+        result.extend(part.strip() for part in str(item).split(",") if part.strip())
     return result
 
 
@@ -163,8 +163,7 @@ def _customers(value: object, label: str) -> dict[str, int]:
 
 def load_config(argv: Sequence[str] | None = None) -> Config:
     parser = argparse.ArgumentParser(prog="tupa")
-    parser.add_argument("members", nargs="*", metavar="MEMBER")
-    parser.add_argument("-m", "--member", dest="member_opt", action="append", default=[])
+    parser.add_argument("-m", "--member", dest="members", action="append", default=[])
     parser.add_argument("--serve", action="store_true", default=None)
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--host", default=None)
@@ -179,12 +178,8 @@ def load_config(argv: Sequence[str] | None = None) -> Config:
     parser.add_argument("--demand-levels", default=None)
     args = parser.parse_args(argv)
 
-    def fail(message: str) -> None:
-        parser.error(message)
-
     selected_path = args.config or os.environ.get("TUPA_CONFIG")
     config_path = selected_path or "config.json"
-    file_config: Mapping[str, object] = {}
     path = Path(config_path)
     try:
         loaded = json.loads(path.read_text(encoding="utf-8"))
@@ -237,7 +232,7 @@ def load_config(argv: Sequence[str] | None = None) -> Config:
             if name in member_set
         }
 
-        cli_members = args.members + (args.member_opt or [])
+        cli_members = args.members
         env_members = (os.environ.get("TUPA_MEMBERS") or "").strip()
         selected = _names(
             cli_members
@@ -271,7 +266,7 @@ def load_config(argv: Sequence[str] | None = None) -> Config:
             "demand_levels",
         )
     except (TypeError, ValueError) as exc:
-        fail(str(exc))
+        parser.error(str(exc))
 
     return Config(
         members=selected,

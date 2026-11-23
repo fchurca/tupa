@@ -8,7 +8,9 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 STATUSES = frozenset({"operational", "warn", "high", "disaster", "unknown"})
 
-SEVERITY = {"operational": 0, "warn": 1, "high": 2, "disaster": 3, "unknown": -1}
+STATUS_ORDER = ("operational", "warn", "high", "disaster", "unknown")
+
+SEVERITY = {"operational": 0, "warn": 1, "high": 2, "disaster": 3}
 
 ART_TZ: tzinfo = ZoneInfo("America/Argentina/Buenos_Aires")
 
@@ -37,8 +39,8 @@ def resolve_timezone(value: object = None) -> tzinfo:
         raise ValueError(f"unknown timezone: {value!r}") from None
 
 
-def now_rfc3339(tz: tzinfo | None = None) -> str:
-    return datetime.now(tz if tz is not None else ART_TZ).isoformat(timespec="seconds")
+def now_rfc3339(tz: tzinfo = ART_TZ) -> str:
+    return datetime.now(tz).isoformat(timespec="seconds")
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +49,8 @@ class SourceSpec:
     kind: str
     member: str
     url: str
+    label: str
+    docs_url: str
     empresa: str | None = None
     region: int | None = None
 
@@ -76,29 +80,25 @@ def make_member(
     comment: str | None = None,
     updated: str | None = None,
     *,
-    tz: tzinfo | None = None,
+    tz: tzinfo = ART_TZ,
 ) -> Member:
     if status not in STATUSES:
         raise ValueError(f"invalid status: {status!r}")
-    zone = tz if tz is not None else ART_TZ
     normalized = (
-        now_rfc3339(zone)
-        if updated is None
-        else _normalized_updated(updated, zone)
+        now_rfc3339(tz) if updated is None else _normalized_updated(updated, tz)
     )
     return Member(status=status, updated=normalized, comment=comment)
 
 
-def unknown_member(reason: str, *, tz: tzinfo | None = None) -> Member:
+def unknown_member(reason: str, *, tz: tzinfo = ART_TZ) -> Member:
     return make_member("unknown", comment=f"source unavailable: {reason}", tz=tz)
 
 
 def aggregate(
-    results: Sequence[tuple[str, Member]], *, tz: tzinfo | None = None
+    results: Sequence[tuple[str, Member]], *, tz: tzinfo = ART_TZ
 ) -> Member:
-    zone = tz if tz is not None else ART_TZ
     if not results:
-        return unknown_member("no sources configured", tz=zone)
+        return unknown_member("no sources configured", tz=tz)
     known = [member for _, member in results if member.status != "unknown"]
     if known:
         status = max(known, key=lambda member: SEVERITY[member.status]).status
@@ -111,5 +111,5 @@ def aggregate(
         status,
         comment="; ".join(comments),
         updated=latest.isoformat(timespec="seconds"),
-        tz=zone,
+        tz=tz,
     )

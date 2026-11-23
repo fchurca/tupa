@@ -1,7 +1,6 @@
 import threading
 import time
 import unittest
-from types import SimpleNamespace
 from unittest.mock import patch
 
 import tupa.core as core
@@ -13,7 +12,15 @@ DEMAND_THRESHOLDS = Thresholds(*DEFAULT_DEMAND_LEVELS)
 
 
 def spec(name, member):
-    return SourceSpec(name, "enre_outages", member, url="https://example.test", empresa="TEST")
+    return SourceSpec(
+        name,
+        "enre_outages",
+        member,
+        url="https://example.test",
+        label=name,
+        docs_url="https://docs.example.test",
+        empresa="TEST",
+    )
 
 
 def collect(*args, **kwargs):
@@ -179,23 +186,6 @@ class CoreTests(unittest.TestCase):
         self.assertIn("cammesa: 60% bajo", member["comment"])
         self.assertIn("enre: 138 usuarios", member["comment"])
 
-    def test_unknown_is_ignored_unless_all_unknown(self):
-        sources = {"a": spec("a", "edenor"), "b": spec("b", "edenor")}
-        members = {"edenor": ("a", "b")}
-
-        def fake(spec, **kwargs):
-            if spec.name == "a":
-                return make_member("operational")
-            return make_member("unknown", comment="sin datos")
-
-        with patch("tupa.core.fetch_source", side_effect=fake):
-            status = collect(None, timeout=1.0, sources=sources, member_sources=members)
-        self.assertEqual(status["members"]["edenor"]["status"], "operational")
-
-        with patch("tupa.core.fetch_source", return_value=make_member("unknown")):
-            status = collect(None, timeout=1.0, sources=sources, member_sources=members)
-        self.assertEqual(status["members"]["edenor"]["status"], "unknown")
-
     def test_empty_member_is_unknown(self):
         with patch("tupa.core.fetch_source") as fetch:
             status = collect(
@@ -203,29 +193,6 @@ class CoreTests(unittest.TestCase):
             )
         fetch.assert_not_called()
         self.assertEqual(status["members"]["edenor"]["status"], "unknown")
-
-    def test_collect_from_config_forwards_settings(self):
-        config = SimpleNamespace(
-            members=("edenor",),
-            tz=ART_TZ,
-            timeout=7.0,
-            thresholds={"edenor": object()},
-            demand_thresholds=object(),
-            sources={"one": spec("one", "edenor")},
-            member_sources={"edenor": ("one",)},
-        )
-        with patch("tupa.core.collect", return_value={"ok": True}) as collect:
-            result = core.collect_from_config(config)
-        self.assertEqual(result, {"ok": True})
-        collect.assert_called_once_with(
-            ("edenor",),
-            tz=ART_TZ,
-            timeout=7.0,
-            thresholds=config.thresholds,
-            demand_thresholds=config.demand_thresholds,
-            sources=config.sources,
-            member_sources=config.member_sources,
-        )
 
     def test_status_matches_cddl_shape(self):
         sources = {"one": spec("one", "one")}

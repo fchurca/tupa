@@ -25,7 +25,7 @@ def _last_modified(headers: Mapping[str, str], tz: tzinfo) -> datetime | None:
         return None
     try:
         parsed = parsedate_to_datetime(value)
-    except (TypeError, ValueError, OverflowError):
+    except (TypeError, ValueError):
         return None
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import math
-import re
 import statistics
 from collections.abc import Sequence
 from datetime import datetime, tzinfo
@@ -36,9 +35,8 @@ def _number(value: object, *, allow_zero: bool = False) -> float | None:
 
 
 def _timestamp(value: object, tz: tzinfo) -> str:
-    text = re.sub(r"([+-]\d{2})(\d{2})\Z", r"\1:\2", str(value))
     try:
-        parsed = datetime.fromisoformat(text)
+        parsed = datetime.fromisoformat(str(value))
     except ValueError:
         raise ValueError(f"CAMMESA fecha no válida: {value!r}") from None
     if parsed.tzinfo is None:

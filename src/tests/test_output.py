@@ -1,12 +1,9 @@
-import base64
-import hashlib
-import re
 import unittest
+from dataclasses import replace
 from importlib.metadata import PackageNotFoundError
 from unittest.mock import patch
 
-from tupa.model import SourceSpec
-from tupa.output import _SCRIPT_HASH, render, render_html
+from tupa.output import render, render_html
 from tupa.sources import DEFAULT_SOURCES
 from tupa.version import get_version
 
@@ -43,30 +40,21 @@ class OutputTests(unittest.TestCase):
         self.assertIn("Actualizado".encode(), payload)
         self.assertIn(f'class="version">v{get_version()}'.encode(), payload)
 
-    def test_render_html_sources_dialog(self):
+    def test_render_html_sources_details(self):
         sources = [
             DEFAULT_SOURCES["cammesa_edenor"],
-            SourceSpec(
-                "enre_edenor",
-                "enre_outages",
-                "edenor",
-                url="https://www.enre.gov.ar/paginacorte/js/data_EDN.js",
-                empresa="EDENOR",
-            ),
+            DEFAULT_SOURCES["enre_edenor"],
         ]
         payload = render_html({"updated": "now", "members": {}}, sources=sources)
-        self.assertIn(b'id="sources-button"', payload)
-        self.assertIn("Lista de fuentes".encode(), payload)
-        self.assertIn(b'id="sources-dialog"', payload)
-        self.assertIn(
-            b'<form method="dialog"><button class="dialog-ok" value="OK">OK</button></form>',
-            payload,
-        )
-        self.assertIn(b"showModal()", payload)
+        self.assertIn(b'<details class="sources">', payload)
+        self.assertIn(b"<summary>Lista de fuentes</summary>", payload)
+        self.assertNotIn(b'id="sources-button"', payload)
+        self.assertNotIn(b"showModal()", payload)
         for heading in ("Nombre", "API", "Documentación"):
             self.assertIn(f"<th>{heading}</th>".encode(), payload)
         self.assertIn(b"CAMMESA Edenor (1077)", payload)
         self.assertIn(b"ENRE Edenor", payload)
+        self.assertIn(DEFAULT_SOURCES["enre_edenor"].docs_url.encode(), payload)
         self.assertNotIn(b"ENRE Edesur", payload)
         self.assertNotIn(b"SACME", payload)
 
@@ -77,22 +65,20 @@ class OutputTests(unittest.TestCase):
 
     def test_render_html_rejects_unsafe_source_urls(self):
         sources = [
-            SourceSpec(
-                "evil", "enre_outages", "edenor", url="javascript:alert(1)", empresa="EDENOR"
-            )
+            replace(DEFAULT_SOURCES["enre_edenor"], url="javascript:alert(1)")
         ]
         payload = render_html({"updated": "now", "members": {}}, sources=sources)
         self.assertIn(b'href=""', payload)
         self.assertNotIn(b'href="javascript:', payload)
 
-    def test_render_html_csp_hash_matches_script(self):
+    def test_render_html_csp_has_no_script(self):
         payload = render_html({"updated": "now", "members": {}}, sources=[]).decode("utf-8")
-        script = re.search(r"<script>(.*?)</script>", payload, re.S)
-        self.assertIsNotNone(script)
-        digest = hashlib.sha256(script.group(1).encode("utf-8")).digest()
-        expected = "sha256-" + base64.b64encode(digest).decode("ascii")
-        self.assertEqual(expected, _SCRIPT_HASH)
-        self.assertIn(f"script-src '{expected}'".encode(), payload.encode())
+        self.assertIn(
+            "default-src 'none'; style-src 'unsafe-inline'; connect-src 'none'; base-uri 'none'",
+            payload,
+        )
+        self.assertNotIn("<script", payload)
+        self.assertNotIn("sha256-", payload)
 
 
 class VersionTests(unittest.TestCase):

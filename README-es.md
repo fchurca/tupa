@@ -9,8 +9,6 @@ eléctrica argentina, pensado para alimentar bots de mensajería y otros sistema
 Debe su nombre a Tupã, el espíritu guaraní del relámpago, el trueno y las
 tormentas. ⚡
 
-> **Trabajo en curso:** Este proyecto se encuentra en una etapa exploratoria.
-
 ## Filosofía
 
 En orden de prioridad:
@@ -26,13 +24,13 @@ En orden de prioridad:
 ## Diseño
 
 TUPA se ejecuta por sí solo o desde cron y escribe JSON en stdout. Los miembros
-se seleccionan mediante argumentos, variables de entorno o configuración JSON, y
-por defecto son todos. Cada miembro combina varias fuentes de datos e informa el
-peor estado conocido. La salida se puede usar directamente o redirigir a un
-archivo para servirla; se espera que cada consumidor sepa seleccionar los
-miembros relevantes. Véase [example.json](example.json). En modo demonio, TUPA
-sirve un panel HTML en `/` y JSON en `/api`. El diálogo de fuentes del panel
-muestra solo las fuentes activas en la instancia.
+se seleccionan mediante opciones con nombre, variables de entorno o
+configuración JSON, y por defecto son todos. Cada miembro combina varias fuentes
+de datos e informa el peor estado conocido. La salida se puede usar directamente
+o redirigir a un archivo para servirla; se espera que cada consumidor sepa
+seleccionar los miembros relevantes. Véase [example.json](example.json). En modo
+demonio, TUPA sirve un panel HTML en `/` y JSON en `/api`. La lista de fuentes
+del panel muestra solo las fuentes activas en la instancia.
 
 Configuración: [config.md](config.md) (en inglés). La mayoría de los usuarios no
 necesita cambiar nada: los valores por defecto están pensados para funcionar.
@@ -69,13 +67,13 @@ creá una etiqueta de Git con el mismo valor `vX.Y.Z`.
 
 ### Fuentes implementadas
 
-Edenor y Edesur se obtienen de los cortes de ENRE y la demanda de CAMMESA. TUPA
-es un agregador automatizable, no un reemplazo de los servicios de monitoreo
-independientes.
+Edenor y Edesur se obtienen de los cortes de ENRE y la demanda de CAMMESA;
+Edelap se obtiene de los cortes de OCEBA. TUPA es un agregador automatizable, no
+un reemplazo de los servicios de monitoreo independientes.
 
 ### Topología
 
-El contexto de las fuentes previas está en [topology.md](topology.md) y
+El contexto de las fuentes implementadas está en [topology.md](topology.md) y
 [diagram.pu](diagram.pu).
 
 ### Estado
@@ -87,14 +85,11 @@ visuales. Un `system` tiene su propia marca de tiempo `updated` y un mapa
 `members` indexado por nombre de miembro. Las marcas de tiempo son cadenas
 ISO 8601 / RFC 3339. Consulte el [esquema CDDL](status.cddl).
 
-ENRE solo publica una hora del día en hora de Argentina (ART): TUPA la combina
-con la fecha HTTP `Last-Modified` del archivo y la convierte a la zona horaria
-de salida configurada. Sin esa cabecera, `updated` registra cuándo TUPA observó
-el dato, sin suponer una fecha. Todas las marcas de tiempo se normalizan a la
-zona horaria configurada (por defecto, hora de Argentina).
-
-Los cortes programados son cortes: usan los mismos umbrales de severidad que
-cualquier otro corte.
+ENRE y OCEBA solo publican una hora del día en hora de Argentina (ART); TUPA
+reconstruye la fecha usando metadatos de la fuente o la fecha ART actual, y
+normaliza todas las marcas de tiempo a la zona horaria configurada. Consulte
+[config.md](config.md) para los detalles. Los cortes programados usan los mismos
+umbrales de severidad que cualquier otro corte.
 
 ## Contribuciones
 
@@ -115,3 +110,4 @@ respectivos términos.
 
 * **ENRE TLS:** solo TLS 1.2 con RSA estático; TUPA usa `@SECLEVEL=1` solo para ENRE, con verificación de certificado activa.
 * **ENRE API(n't):** no hay API; los datos están en `data_EDN.js` / `data_EDS.js`.
+* **Confianza DNS:** TUPA usa el resolvedor del sistema y sigue redirecciones sin filtrar direcciones resueltas. Preferí un resolvedor que valide DNSSEC y restringí el egress donde importe.

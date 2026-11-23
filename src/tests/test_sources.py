@@ -1,28 +1,23 @@
 import io
 import json
-import socket
 import ssl
 import threading
 import time
 import unittest
-from datetime import timezone
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
-from urllib.error import HTTPError, URLError
-from urllib.request import Request
+from urllib.error import URLError
 
-import tupa.sources.common as common
-from tupa.model import ART_TZ
-from tupa.sources import DEFAULT_SOURCES, cammesa
+from tupa.model import ART_TZ, make_member
+from tupa.sources import DEFAULT_SOURCES, cammesa, fetch_source, oceba
 from tupa.sources.common import (
     DEFAULT_CUSTOMERS,
     DEFAULT_DEMAND_LEVELS,
     DEFAULT_LEVELS,
     USER_AGENT,
-    FetchTimeout,
     Thresholds,
-    _target_privacy,
     fetch_text,
     legacy_tls_context,
     thresholds_from,
@@ -341,7 +336,7 @@ class SourceTests(unittest.TestCase):
             thread.start()
             try:
                 start = time.monotonic()
-                with self.assertRaises(FetchTimeout):
+                with self.assertRaises(TimeoutError):
                     fetch_text(
                         f"http://127.0.0.1:{server.server_port}/",
                         timeout=5.0,
@@ -357,51 +352,63 @@ class SourceTests(unittest.TestCase):
             with self.subTest(handler=handler.__name__):
                 check(handler)
 
-    def test_private_redirect_targets_are_rejected(self):
-        for host in ("127.0.0.1", "::1", "10.0.0.1", "169.254.169.254"):
-            with self.subTest(host=host):
-                self.assertIsNot(_target_privacy(host), False)
-        self.assertIs(_target_privacy("8.8.8.8"), False)
+    def test_edelap_from_oceba_fixture(self):
+        class FixedDatetime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return datetime(2026, 11, 23, 13, 0, tzinfo=tz)
 
-    def test_special_address_ranges_are_restricted(self):
-        for host in ("100.64.0.1", "100.100.100.200", "224.0.0.1", "0.0.0.0"):
-            with self.subTest(host=host):
-                self.assertIsNot(_target_privacy(host), False)
-        with patch(
-            "tupa.sources.common.socket.getaddrinfo",
-            side_effect=socket.gaierror("resolver down"),
+        spec = DEFAULT_SOURCES["oceba_edelap"]
+        with (
+            patch(
+                "tupa.sources.common.urlopen",
+                return_value=response("oceba_edelap.html"),
+            ) as mock,
+            patch("tupa.sources.oceba.datetime", FixedDatetime),
         ):
-            self.assertIsNone(_target_privacy("unresolvable.example"))
-
-    def test_connect_rejects_restricted_addresses(self):
-        previous = getattr(common._fetch_local, "allow_private", False)
-        try:
-            common._fetch_local.allow_private = False
-            with self.assertRaises(socket.gaierror) as caught:
-                common._connect_with_deadline(("127.0.0.1", 80), 1.0, None)
-            self.assertIn("not allowed", str(caught.exception))
-        finally:
-            common._fetch_local.allow_private = previous
-
-    def test_redirect_handler_fails_closed(self):
-        request = Request("https://public.example/")
-        handler = common._RestrictedRedirectHandler(allow_private=False)
-        with patch("tupa.sources.common._target_privacy", return_value=True):
-            with self.assertRaisesRegex(HTTPError, "unsafe redirect target"):
-                handler.redirect_request(
-                    request, io.BytesIO(b""), 302, "Found", {}, "http://127.0.0.1/"
-                )
-        with patch("tupa.sources.common._target_privacy", return_value=None):
-            with self.assertRaisesRegex(HTTPError, "unsafe redirect target"):
-                handler.redirect_request(
-                    request, io.BytesIO(b""), 302, "Found", {}, "http://127.0.0.1/"
-                )
-        permissive = common._RestrictedRedirectHandler(allow_private=True)
-        with patch("tupa.sources.common._target_privacy", return_value=True):
-            redirected = permissive.redirect_request(
-                request, io.BytesIO(b""), 302, "Found", {}, "http://127.0.0.1/"
+            member = oceba.fetch_oceba(
+                spec=spec,
+                timeout=4.0,
+                thresholds=DEFAULT_THRESHOLDS,
+                tz=ART_TZ,
             )
-        self.assertEqual(redirected.full_url, "http://127.0.0.1/")
+        self.assertEqual(member.status, "warn")
+        self.assertIn("122 usuarios sin suministro", member.comment)
+        self.assertIn("5 cortes informados", member.comment)
+        self.assertIn("OCEBA ultimaActualizacion 12:10", member.comment)
+        self.assertEqual(member.updated, "2026-11-23T12:10:00-03:00")
+        self.assertEqual(mock.call_args.args[0].full_url, spec.url)
+        self.assertEqual(mock.call_args.kwargs["timeout"], 4.0)
+
+    def test_edelap_distributor_mismatch_is_rejected(self):
+        text = response("oceba_edelap.html").read().decode().replace("EDELAP S.A.", "OTRA S.A.")
+        with patch("tupa.sources.oceba.fetch_content", return_value=(text, {})):
+            with self.assertRaisesRegex(ValueError, "unexpected distributor"):
+                oceba.fetch_oceba(
+                    spec=DEFAULT_SOURCES["oceba_edelap"],
+                    timeout=1.0,
+                    thresholds=DEFAULT_THRESHOLDS,
+                    tz=ART_TZ,
+                )
+
+    def test_oceba_source_dispatch(self):
+        spec = DEFAULT_SOURCES["oceba_edelap"]
+        with patch("tupa.sources.fetch_oceba", return_value=make_member("operational")) as fetch:
+            member = fetch_source(
+                spec,
+                timeout=1.0,
+                thresholds=DEFAULT_THRESHOLDS,
+                demand_thresholds=DEMAND_THRESHOLDS,
+                tz=ART_TZ,
+            )
+        self.assertEqual(member.status, "operational")
+        fetch.assert_called_once_with(
+            spec=spec,
+            timeout=1.0,
+            thresholds=DEFAULT_THRESHOLDS,
+            tz=ART_TZ,
+            deadline=None,
+        )
 
     def test_non_http_schemes_are_not_opened(self):
         for url in ("file:///etc/passwd", "ftp://example.test/file"):

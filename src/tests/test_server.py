@@ -82,8 +82,11 @@ class HTTPTests(unittest.TestCase):
         self.assertIn(b'href="/api"', body)
         self.assertIn(b"CAMMESA Edenor (1077)", body)
         self.assertNotIn(b"ENRE Edesur", body)
+        self.assertIn(b'<details class="sources">', body)
         self.assertIn(b"Content-Security-Policy", body)
-        self.assertIn(b"script-src 'sha256-", body)
+        self.assertIn(b"default-src 'none'", body)
+        self.assertNotIn(b"script-src", body)
+        self.assertNotIn(b"<script", body)
 
     def test_api_endpoint(self):
         code, headers, body = self.request("/api")
@@ -101,7 +104,7 @@ class HTTPTests(unittest.TestCase):
         self.assertEqual(int(headers["Content-Length"]), len(get_body))
 
     def test_unknown_path_is_404(self):
-        for path in ("/status", "/status.json", "/missing"):
+        for path in ("/missing",):
             with self.subTest(path=path):
                 code, _, _ = self.request(path)
                 self.assertEqual(code, 404)

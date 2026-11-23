@@ -17,6 +17,12 @@ MAX_WORKERS = 16
 _POOL = ThreadPoolExecutor(max_workers=MAX_WORKERS)
 
 
+def _timed_out(source_id: str, timeout: float, tz: tzinfo) -> Member:
+    return unknown_member(
+        f"{source_id} no respondió a tiempo después de {timeout:g} segundos", tz=tz
+    )
+
+
 def collect(
     members: Sequence[str] | None,
     *,
@@ -27,12 +33,11 @@ def collect(
     demand_thresholds: Thresholds,
     tz: tzinfo,
 ) -> dict:
-    definition = member_sources
-    selected = tuple(definition) if not members else tuple(members)
+    selected = tuple(member_sources) if not members else tuple(members)
     tasks = [
         (member, source_id, sources[source_id])
         for member in selected
-        for source_id in definition[member]
+        for source_id in member_sources[member]
     ]
     updated = now_rfc3339(tz)
     deadline = time.monotonic() + timeout
@@ -56,10 +61,7 @@ def collect(
             result = future.result()
         except TimeoutError:
             log.warning("source %s timed out after %s seconds", source_id, timeout)
-            result = unknown_member(
-                f"{source_id} no respondió a tiempo después de {timeout:g} segundos",
-                tz=tz,
-            )
+            result = _timed_out(source_id, timeout, tz)
         except Exception as exc:
             log.warning("source %s failed: %s: %s", source_id, type(exc).__name__, exc)
             result = unknown_member(f"{type(exc).__name__}: {exc}", tz=tz)
@@ -68,15 +70,7 @@ def collect(
         future.cancel()
         member, source_id = futures[future]
         log.warning("source %s timed out after %s seconds", source_id, timeout)
-        groups[member].append(
-            (
-                source_id,
-                unknown_member(
-                    f"{source_id} no respondió a tiempo después de {timeout:g} segundos",
-                    tz=tz,
-                ),
-            )
-        )
+        groups[member].append((source_id, _timed_out(source_id, timeout, tz)))
 
     resolved = {
         member: aggregate(sorted(results, key=lambda item: item[0]), tz=tz).to_json()

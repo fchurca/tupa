@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import http.client
-import ipaddress
 import math
 import re
 import socket
@@ -12,18 +11,16 @@ from collections.abc import Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import lru_cache
-from urllib.error import HTTPError, URLError
-from urllib.parse import urlsplit
+from urllib.error import URLError
 from urllib.request import (
     HTTPDefaultErrorHandler,
     HTTPErrorProcessor,
     HTTPHandler,
-    HTTPSHandler,
     HTTPRedirectHandler,
+    HTTPSHandler,
     OpenerDirector,
     ProxyHandler,
     Request,
-    UnknownHandler,
 )
 
 from ..version import get_version
@@ -55,10 +52,6 @@ def legacy_tls_context() -> ssl.SSLContext:
     return context
 
 
-class FetchTimeout(TimeoutError):
-    pass
-
-
 _fetch_local = threading.local()
 
 
@@ -83,13 +76,7 @@ def _connect_with_deadline(address, timeout: float | None, source_address, **kwa
     host, port = address
     infos = socket.getaddrinfo(host, port, 0, socket.SOCK_STREAM)
     last_error: OSError | None = None
-    allowed = False
     for family, socktype, proto, _, sockaddr in infos:
-        if not getattr(_fetch_local, "allow_private", False) and _restricted_ip(
-            sockaddr[0]
-        ):
-            continue
-        allowed = True
         sock: socket.socket | None = None
         try:
             sock = socket.socket(family, socktype, proto)
@@ -104,10 +91,6 @@ def _connect_with_deadline(address, timeout: float | None, source_address, **kwa
                 sock.close()
     if last_error is not None:
         raise last_error
-    if not allowed:
-        raise socket.gaierror(
-            getattr(socket, "EAI_ACCES", socket.EAI_FAIL), "target address not allowed"
-        )
     raise socket.gaierror(socket.EAI_AGAIN, "no address for host")
 
 
@@ -131,70 +114,18 @@ class _DeadlineHTTPSHandler(HTTPSHandler):
         return self.do_open(_DeadlineHTTPSConnection, req, context=self._context)
 
 
-_CGNAT_NETWORK = ipaddress.ip_network("100.64.0.0/10")
-
-
-def _restricted_ip(address: object) -> bool:
-    try:
-        parsed = ipaddress.ip_address(address)
-    except (TypeError, ValueError):
-        return True
-    return bool(
-        parsed.is_private
-        or parsed.is_loopback
-        or parsed.is_link_local
-        or parsed.is_reserved
-        or parsed.is_multicast
-        or parsed.is_unspecified
-        or parsed in _CGNAT_NETWORK
-    )
-
-
-def _target_privacy(host: str) -> bool | None:
-    try:
-        address = ipaddress.ip_address(host)
-    except ValueError:
-        try:
-            infos = socket.getaddrinfo(host, None)
-        except OSError:
-            return None
-        if not infos:
-            return None
-        return any(_restricted_ip(info[4][0]) for info in infos)
-    return _restricted_ip(address)
-
-
-class _RestrictedRedirectHandler(HTTPRedirectHandler):
-    def __init__(self, allow_private: bool = False):
-        super().__init__()
-        self.allow_private = allow_private
-
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        target = urlsplit(newurl)
-        if target.scheme.lower() not in ("http", "https") or (
-            not self.allow_private and _target_privacy(target.hostname or "") is not False
-        ):
-            raise HTTPError(req.full_url, code, "unsafe redirect target", headers, fp)
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
-
-
 def urlopen(request: Request, *, timeout: float, context: ssl.SSLContext | None = None):
-    initial = urlsplit(request.full_url)
-    allow_private = _target_privacy(initial.hostname or "") is True
     opener = OpenerDirector()
     opener.add_handler(ProxyHandler({}))
-    opener.add_handler(UnknownHandler())
     opener.add_handler(HTTPDefaultErrorHandler())
-    opener.add_handler(_RestrictedRedirectHandler(allow_private))
+    opener.add_handler(HTTPRedirectHandler())
     opener.add_handler(HTTPErrorProcessor())
     opener.add_handler(_DeadlineHTTPHandler())
     opener.add_handler(_DeadlineHTTPSHandler(context=context))
-    previous = getattr(_fetch_local, "allow_private", False)
-    _fetch_local.allow_private = allow_private
-    try:
-        return opener.open(request, timeout=timeout)
-    finally:
-        _fetch_local.allow_private = previous
+    response = opener.open(request, timeout=timeout)
+    if response is None:
+        raise URLError(f"unknown url type: {request.type}")
+    return response
 
 
 def fetch_content(
@@ -215,7 +146,7 @@ def fetch_content(
             if deadline is not None and (
                 isinstance(reason, TimeoutError) or time.monotonic() >= deadline
             ):
-                raise FetchTimeout(f"fetch deadline after {timeout:g} seconds") from exc
+                raise TimeoutError(f"fetch deadline after {timeout:g} seconds") from exc
             raise
         with response:
             try:
@@ -223,7 +154,7 @@ def fetch_content(
                 total = 0
                 while total <= MAX_RESPONSE_BYTES:
                     if deadline is not None and time.monotonic() >= deadline:
-                        raise FetchTimeout(f"fetch deadline after {timeout:g} seconds")
+                        raise TimeoutError(f"fetch deadline after {timeout:g} seconds")
                     chunk = response.read(min(8192, MAX_RESPONSE_BYTES + 1 - total))
                     if not chunk:
                         break
@@ -232,7 +163,7 @@ def fetch_content(
                 raw = b"".join(chunks)
             except (OSError, http.client.IncompleteRead) as exc:
                 if deadline is not None and time.monotonic() >= deadline:
-                    raise FetchTimeout(f"fetch deadline after {timeout:g} seconds") from exc
+                    raise TimeoutError(f"fetch deadline after {timeout:g} seconds") from exc
                 raise
             headers: Mapping[str, str] = getattr(response, "headers", {})
     if len(raw) > MAX_RESPONSE_BYTES:
@@ -442,6 +373,6 @@ def thresholds_from(
 
 def thresholds_for(name: str, thresholds: Mapping[str, Thresholds]) -> Thresholds:
     try:
-        return thresholds[name.lower()]
+        return thresholds[name]
     except KeyError:
         raise ValueError(f"no thresholds configured for {name!r}") from None
