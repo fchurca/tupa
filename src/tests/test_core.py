@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import tupa.core as core
-from tupa.model import ART_TZ, SourceSpec, make_member
+from tupa.model import ART_TZ, SourceSpec, make_member, resolve_timezone
 
 
 def spec(name, member):
@@ -43,6 +43,26 @@ class CoreTests(unittest.TestCase):
         self.assertIn("RuntimeError: down", status["members"]["alpha"]["comment"])
         self.assertEqual(status["members"]["zeta"]["status"], "operational")
         self.assertEqual(seen, [3.5])
+
+    def test_collect_normalizes_all_timestamps_to_configured_timezone(self):
+        zone = resolve_timezone("UTC")
+        seen = []
+
+        def source(spec, **kwargs):
+            seen.append(kwargs["tz"])
+            return make_member("operational", updated="2026-01-01T00:00:00Z")
+
+        with patch("tupa.core.fetch_source", side_effect=source):
+            status = core.collect(
+                None,
+                timeout=1.0,
+                sources={"one": spec("one", "one")},
+                member_sources={"one": ("one",)},
+                tz=zone,
+            )
+        self.assertEqual(seen, [zone])
+        self.assertTrue(status["updated"].endswith("+00:00"))
+        self.assertTrue(status["members"]["one"]["updated"].endswith("+00:00"))
 
     def test_collect_maps_timeout_to_spanish_unknown(self):
         def slow(spec, **kwargs):

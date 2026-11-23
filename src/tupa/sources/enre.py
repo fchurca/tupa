@@ -5,7 +5,7 @@ from collections.abc import Mapping
 from datetime import datetime, time, timezone, tzinfo
 from email.utils import parsedate_to_datetime
 
-from ..model import ART_TZ, Member, make_member, system_timezone
+from ..model import ART_TZ, Member, make_member
 from .common import (
     ACTIVE_KEYS,
     PLANNED_KEYS,
@@ -61,7 +61,7 @@ def fetch_enre(
     tz: tzinfo | None = None,
     deadline: float | None = None,
 ) -> Member:
-    zone = tz if tz is not None else system_timezone()
+    zone = tz if tz is not None else ART_TZ
     text, headers = fetch_content(
         url,
         timeout=timeout,

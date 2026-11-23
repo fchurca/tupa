@@ -18,8 +18,8 @@ the service harder to operate.
 When running with Docker, environment variables are lifted from a `.env` file in
 the project directory. Copy the [`stack.env`](stack.env) template to `.env` and
 edit it; every supported variable is listed there with its default commented
-out. Compose interpolates `TZ` from the shell or `.env`; it does not discover the
-host timezone, and defaults to Argentina Time when `TZ` is unset.
+out. Compose interpolates `TZ` from the shell or `.env` for `TUPA_TZ=system`; it
+does not discover the host timezone. Output defaults to Argentina Time.
 
 Values not supplied anywhere use the defaults below. Configuration is optional.
 The JSON file is selected with `--config PATH` or `TUPA_CONFIG`.
@@ -176,11 +176,11 @@ Notes:
 
 All timestamps in the output are normalized to one timezone. By default TUPA
 uses Argentina Time (ART, `America/Argentina/Buenos_Aires`). TUPA does not probe
-`/etc/localtime`: set `TZ` or `tz` / `TUPA_TZ` / `--tz` to override the default
-with an IANA name such as `America/Argentina/Buenos_Aires` or `UTC`. An unset
-or unresolvable `TZ` falls back to ART; an invalid explicit TUPA setting is a
-configuration error. `system` selects the same default. The container image
-includes `tzdata`.
+`/etc/localtime`: set `tz` / `TUPA_TZ` / `--tz` to an IANA name such as
+`America/Argentina/Buenos_Aires` or `UTC` to override it. The values `system`
+and `local` explicitly select the host `TZ` instead, falling back to ART when
+`TZ` is unset or unresolvable; an invalid explicit TUPA setting is a
+configuration error. The container image includes `tzdata`.
 
 ENRE reports only a local time of day in ART; TUPA combines it with the file's HTTP
 `Last-Modified` date and converts it to the configured output timezone. Without

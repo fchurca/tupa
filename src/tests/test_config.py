@@ -216,6 +216,15 @@ class ConfigTests(unittest.TestCase):
 
         with self.clean_env(TZ="UTC"):
             config = load_config([])
+        self.assertEqual(str(config.tz), "America/Argentina/Buenos_Aires")
+
+        with self.clean_env(TZ="UTC"):
+            config = load_config(["--tz", "system"])
+        self.assertEqual(str(config.tz), "UTC")
+
+        path = self.write_json({"tz": "local"})
+        with self.clean_env(TZ="UTC", TUPA_CONFIG=path):
+            config = load_config([])
         self.assertEqual(str(config.tz), "UTC")
 
         with self.clean_env(TUPA_TZ="-03:00"), self.quiet_error(), self.assertRaises(SystemExit) as ctx:

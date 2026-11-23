@@ -7,7 +7,7 @@ import statistics
 from collections.abc import Sequence
 from datetime import datetime, tzinfo
 
-from ..model import Member, SourceSpec, make_member, system_timezone
+from ..model import ART_TZ, Member, SourceSpec, make_member
 from .common import DEFAULT_DEMAND_THRESHOLDS, DemandThresholds, fetch_text
 
 BASE_URL = (
@@ -73,7 +73,7 @@ def fetch_demand(
     tz: tzinfo | None = None,
     deadline: float | None = None,
 ) -> Member:
-    zone = tz if tz is not None else system_timezone()
+    zone = tz if tz is not None else ART_TZ
     url = spec.url or url_for(spec.region or 0)
     payload = json.loads(fetch_text(url, timeout=timeout, deadline=deadline))
     rows = _rows(payload)

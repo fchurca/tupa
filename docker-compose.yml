@@ -10,7 +10,7 @@ services:
       - path: .env
         required: false
     environment:
-      # TZ is interpolated from the shell or .env; it defaults to ART.
+      # TZ is used when TUPA_TZ=system; output otherwise defaults to ART.
       TZ: ${TZ:-America/Argentina/Buenos_Aires}
     restart: unless-stopped
     read_only: true

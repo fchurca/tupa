@@ -25,9 +25,11 @@ def system_timezone() -> tzinfo:
 
 def resolve_timezone(value: object = None) -> tzinfo:
     if value is None:
-        return system_timezone()
+        return ART_TZ
     text = str(value).strip().lstrip(":")
-    if not text or text.upper() == "SYSTEM":
+    if not text:
+        return ART_TZ
+    if text.upper() in {"SYSTEM", "LOCAL"}:
         return system_timezone()
     try:
         return ZoneInfo(text)
@@ -36,9 +38,7 @@ def resolve_timezone(value: object = None) -> tzinfo:
 
 
 def now_rfc3339(tz: tzinfo | None = None) -> str:
-    return datetime.now(tz if tz is not None else system_timezone()).isoformat(
-        timespec="seconds"
-    )
+    return datetime.now(tz if tz is not None else ART_TZ).isoformat(timespec="seconds")
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,6 +64,13 @@ class Member:
         return result
 
 
+def _normalized_updated(value: str, tz: tzinfo) -> str:
+    parsed = datetime.fromisoformat(value)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=tz)
+    return parsed.astimezone(tz).isoformat(timespec="seconds")
+
+
 def make_member(
     status: str,
     comment: str | None = None,
@@ -73,28 +80,23 @@ def make_member(
 ) -> Member:
     if status not in STATUSES:
         raise ValueError(f"invalid status: {status!r}")
-    return Member(
-        status=status,
-        updated=updated if updated is not None else now_rfc3339(tz),
-        comment=comment,
+    zone = tz if tz is not None else ART_TZ
+    normalized = (
+        now_rfc3339(zone)
+        if updated is None
+        else _normalized_updated(updated, zone)
     )
+    return Member(status=status, updated=normalized, comment=comment)
 
 
 def unknown_member(reason: str, *, tz: tzinfo | None = None) -> Member:
     return make_member("unknown", comment=f"source unavailable: {reason}", tz=tz)
 
 
-def _normalize_updated(value: str, tz: tzinfo) -> datetime:
-    parsed = datetime.fromisoformat(value)
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=tz)
-    return parsed.astimezone(tz)
-
-
 def aggregate(
     results: Sequence[tuple[str, Member]], *, tz: tzinfo | None = None
 ) -> Member:
-    zone = tz if tz is not None else system_timezone()
+    zone = tz if tz is not None else ART_TZ
     if not results:
         return unknown_member("no sources configured", tz=zone)
     known = [member for _, member in results if member.status != "unknown"]
@@ -105,7 +107,7 @@ def aggregate(
     comments = [f"{name}: {member.comment or member.status}" for name, member in results]
     for_latest = known if known else [member for _, member in results]
     latest = max(
-        (_normalize_updated(member.updated, zone) for member in for_latest),
+        (datetime.fromisoformat(member.updated) for member in for_latest),
         default=None,
     )
     return make_member(

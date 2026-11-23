@@ -34,6 +34,13 @@ class ModelTests(unittest.TestCase):
     def test_member_to_json_includes_comment(self):
         member = make_member("warn", comment="cortes", updated="2026-01-01T00:00:00Z")
         self.assertEqual(member.to_json()["comment"], "cortes")
+        self.assertEqual(member.updated, "2025-12-31T21:00:00-03:00")
+
+    def test_make_member_normalizes_to_configured_timezone(self):
+        member = make_member(
+            "operational", updated="2026-01-01T00:00:00-03:00", tz=resolve_timezone("UTC")
+        )
+        self.assertEqual(member.updated, "2026-01-01T03:00:00+00:00")
 
     def test_unknown_member(self):
         member = unknown_member("timeout")
@@ -77,11 +84,19 @@ class ModelTests(unittest.TestCase):
         self.assertEqual(aggregate([]).status, "unknown")
 
     def test_resolve_timezone(self):
+        self.assertEqual(str(resolve_timezone()), "America/Argentina/Buenos_Aires")
+        self.assertEqual(str(resolve_timezone("")), "America/Argentina/Buenos_Aires")
         self.assertEqual(str(resolve_timezone("UTC")), "UTC")
         self.assertEqual(str(resolve_timezone("system")), str(system_timezone()))
-        for value in ("-03:00", "local", "Mars/Olympus"):
+        self.assertEqual(str(resolve_timezone("local")), str(system_timezone()))
+        for value in ("-03:00", "Mars/Olympus"):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 resolve_timezone(value)
+
+    def test_resolve_timezone_system_uses_tz(self):
+        with patch.dict(os.environ, {"TZ": "UTC"}, clear=True):
+            self.assertEqual(str(resolve_timezone("system")), "UTC")
+            self.assertEqual(str(resolve_timezone("local")), "UTC")
 
     def test_system_timezone_uses_tz_only(self):
         with patch.dict(os.environ, {}, clear=True):
