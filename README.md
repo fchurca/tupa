@@ -19,6 +19,10 @@ In priority order:
 > systems it should be treated as just another alert source, not a health
 > indicator.
 
+> Do one thing. Do it well.
+>
+> — Saint Doug of the House of McIlroy, scribe of the School of Unics in the Workshops of the Bell
+
 ## Design
 
 TUPA runs standalone or from cron, writing JSON to stdout. Members are

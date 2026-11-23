@@ -21,6 +21,10 @@ En orden de prioridad:
 > TUPA es un agregador amplio, no una fuente autoritativa. En sistemas críticos
 > debe considerarse solo otra fuente de alertas, no un indicador de salud.
 
+> Haz una cosa. Hazla bien.
+>
+> — San Doug de la Casa de McIlroy, escriba de la Escuela de Unics en los Talleres de la Campana
+
 ## Diseño
 
 TUPA se ejecuta por sí solo o desde cron y escribe JSON en stdout. Los miembros
