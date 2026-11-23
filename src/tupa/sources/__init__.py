@@ -4,7 +4,7 @@ from collections.abc import Mapping
 from datetime import tzinfo
 
 from ..model import Member, SourceSpec
-from ..sources.common import DemandThresholds, Thresholds
+from ..sources.common import Thresholds
 from . import cammesa
 from .cammesa import fetch_demand
 from .enre import fetch_enre
@@ -50,9 +50,9 @@ def fetch_source(
     spec: SourceSpec,
     *,
     timeout: float,
-    thresholds: Mapping[str, Thresholds] | None = None,
-    demand_thresholds: DemandThresholds | None = None,
-    tz: tzinfo | None = None,
+    thresholds: Mapping[str, Thresholds],
+    demand_thresholds: Thresholds,
+    tz: tzinfo,
     deadline: float | None = None,
 ) -> Member:
     if spec.kind == "enre_outages":
@@ -65,12 +65,10 @@ def fetch_source(
             tz=tz,
             deadline=deadline,
         )
-    if spec.kind == "cammesa_demand":
-        return fetch_demand(
-            spec=spec,
-            timeout=timeout,
-            thresholds=demand_thresholds,
-            tz=tz,
-            deadline=deadline,
-        )
-    raise ValueError(f"{spec.name}: unknown source kind {spec.kind!r}")
+    return fetch_demand(
+        spec=spec,
+        timeout=timeout,
+        thresholds=demand_thresholds,
+        tz=tz,
+        deadline=deadline,
+    )

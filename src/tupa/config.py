@@ -16,7 +16,6 @@ from .sources.common import (
     DEFAULT_CUSTOMERS,
     DEFAULT_DEMAND_LEVELS,
     DEFAULT_LEVELS,
-    DemandThresholds,
     Thresholds,
     thresholds_from,
 )
@@ -58,7 +57,7 @@ class Config:
     ttl: float
     indent: int
     thresholds: Mapping[str, Thresholds]
-    demand_thresholds: DemandThresholds
+    demand_thresholds: Thresholds
 
 
 def _split(value: object, label: str) -> list[str]:
@@ -186,31 +185,30 @@ def load_config(argv: Sequence[str] | None = None) -> Config:
     selected_path = args.config or os.environ.get("TUPA_CONFIG")
     config_path = selected_path or "config.json"
     file_config: Mapping[str, object] = {}
-    if config_path:
-        path = Path(config_path)
-        try:
-            loaded = json.loads(path.read_text(encoding="utf-8"))
-        except FileNotFoundError:
-            if selected_path:
-                log.info("config file %s not found; using defaults", config_path)
-            loaded = {}
-        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-            log.warning(
-                "cannot read JSON config %r: %s; using defaults", config_path, exc
-            )
-            loaded = {}
-        if not isinstance(loaded, dict):
-            log.warning("JSON config must contain an object in %r; using defaults", config_path)
-            loaded = {}
-        unknown = set(loaded) - CONFIG_KEYS
-        if unknown:
-            log.warning(
-                "unknown config keys: %s in %r; ignoring them",
-                ", ".join(sorted(map(str, unknown))),
-                config_path,
-            )
-            loaded = {key: value for key, value in loaded.items() if key in CONFIG_KEYS}
-        file_config = loaded
+    path = Path(config_path)
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        if selected_path:
+            log.info("config file %s not found; using defaults", config_path)
+        loaded = {}
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        log.warning(
+            "cannot read JSON config %r: %s; using defaults", config_path, exc
+        )
+        loaded = {}
+    if not isinstance(loaded, dict):
+        log.warning("JSON config must contain an object in %r; using defaults", config_path)
+        loaded = {}
+    unknown = set(loaded) - CONFIG_KEYS
+    if unknown:
+        log.warning(
+            "unknown config keys: %s in %r; ignoring them",
+            ", ".join(sorted(map(str, unknown))),
+            config_path,
+        )
+        loaded = {key: value for key, value in loaded.items() if key in CONFIG_KEYS}
+    file_config = loaded
 
     def value(key: str, env_key: str, cli: object, default: object) -> object:
         if cli is not None:
@@ -287,5 +285,5 @@ def load_config(argv: Sequence[str] | None = None) -> Config:
         ttl=ttl,
         indent=indent,
         thresholds=thresholds_from(customers, levels),
-        demand_thresholds=DemandThresholds(*demand_levels),
+        demand_thresholds=Thresholds(*demand_levels),
     )

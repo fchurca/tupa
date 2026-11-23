@@ -6,10 +6,21 @@ from unittest.mock import patch
 
 import tupa.core as core
 from tupa.model import ART_TZ, SourceSpec, make_member, resolve_timezone
+from tupa.sources import DEFAULT_SOURCES
+from tupa.sources.common import DEFAULT_DEMAND_LEVELS, Thresholds
+
+DEMAND_THRESHOLDS = Thresholds(*DEFAULT_DEMAND_LEVELS)
 
 
 def spec(name, member):
     return SourceSpec(name, "enre_outages", member, url="https://example.test", empresa="TEST")
+
+
+def collect(*args, **kwargs):
+    kwargs.setdefault("thresholds", {})
+    kwargs.setdefault("demand_thresholds", DEMAND_THRESHOLDS)
+    kwargs.setdefault("tz", ART_TZ)
+    return core.collect(*args, **kwargs)
 
 
 class CoreTests(unittest.TestCase):
@@ -26,7 +37,7 @@ class CoreTests(unittest.TestCase):
         sources = {"bad": spec("bad", "alpha"), "good": spec("good", "zeta")}
         members = {"alpha": ("bad",), "zeta": ("good",)}
         with patch("tupa.core.fetch_source", side_effect=lambda s, **kw: (bad if s.name == "bad" else good)(s, **kw)):
-            status = core.collect(
+            status = collect(
                 None,
                 timeout=3.5,
                 sources=sources,
@@ -53,7 +64,7 @@ class CoreTests(unittest.TestCase):
             return make_member("operational", updated="2026-01-01T00:00:00Z")
 
         with patch("tupa.core.fetch_source", side_effect=source):
-            status = core.collect(
+            status = collect(
                 None,
                 timeout=1.0,
                 sources={"one": spec("one", "one")},
@@ -71,7 +82,7 @@ class CoreTests(unittest.TestCase):
         sources = {"slow": spec("slow", "edenor")}
         members = {"edenor": ("slow",)}
         with patch("tupa.core.fetch_source", side_effect=slow):
-            status = core.collect(None, timeout=10.0, sources=sources, member_sources=members)
+            status = collect(None, timeout=10.0, sources=sources, member_sources=members)
         member = status["members"]["edenor"]
         self.assertEqual(member["status"], "unknown")
         self.assertIn("slow no respondió a tiempo después de 10 segundos", member["comment"])
@@ -86,7 +97,7 @@ class CoreTests(unittest.TestCase):
         sources = {"one": spec("one", "one"), "two": spec("two", "two")}
         members = {"one": ("one",), "two": ("two",)}
         with patch("tupa.core.fetch_source", side_effect=one):
-            status = core.collect(["two"], timeout=1.0, sources=sources, member_sources=members)
+            status = collect(["two"], timeout=1.0, sources=sources, member_sources=members)
 
         self.assertEqual(calls, ["two"])
         self.assertEqual(list(status["members"]), ["two"])
@@ -95,7 +106,7 @@ class CoreTests(unittest.TestCase):
         sources = {"one": spec("one", "one"), "two": spec("two", "two")}
         members = {"one": ("one",), "two": ("two",)}
         with patch("tupa.core.fetch_source", return_value=make_member("operational")) as fetch:
-            status = core.collect([], timeout=1.0, sources=sources, member_sources=members)
+            status = collect([], timeout=1.0, sources=sources, member_sources=members)
         self.assertEqual(fetch.call_count, 2)
         self.assertEqual(list(status["members"]), ["one", "two"])
 
@@ -111,7 +122,7 @@ class CoreTests(unittest.TestCase):
         start = time.monotonic()
         try:
             with patch("tupa.core.fetch_source", side_effect=blocked):
-                status = core.collect(None, timeout=0.1, sources=sources, member_sources=members)
+                status = collect(None, timeout=0.1, sources=sources, member_sources=members)
         finally:
             release.set()
         self.assertLess(time.monotonic() - start, 2.0)
@@ -130,7 +141,7 @@ class CoreTests(unittest.TestCase):
         sources = {"one": spec("one", "edenor")}
         members = {"edenor": ("one",)}
         with patch("tupa.core.fetch_source", side_effect=one):
-            core.collect(
+            collect(
                 None,
                 timeout=1.0,
                 thresholds=thresholds,
@@ -150,7 +161,7 @@ class CoreTests(unittest.TestCase):
 
         sources = {
             "enre": spec("enre", "edenor"),
-            "cammesa": SourceSpec("cammesa", "cammesa_demand", "edenor", region=1077),
+            "cammesa": DEFAULT_SOURCES["cammesa_edenor"],
         }
         members = {"edenor": ("enre", "cammesa")}
 
@@ -158,7 +169,7 @@ class CoreTests(unittest.TestCase):
             return enre(spec, **kwargs) if spec.kind == "enre_outages" else cammesa(spec, **kwargs)
 
         with patch("tupa.core.fetch_source", side_effect=fake):
-            status = core.collect(
+            status = collect(
                 None, timeout=1.0, sources=sources, member_sources=members, tz=ART_TZ
             )
 
@@ -178,42 +189,20 @@ class CoreTests(unittest.TestCase):
             return make_member("unknown", comment="sin datos")
 
         with patch("tupa.core.fetch_source", side_effect=fake):
-            status = core.collect(None, timeout=1.0, sources=sources, member_sources=members)
+            status = collect(None, timeout=1.0, sources=sources, member_sources=members)
         self.assertEqual(status["members"]["edenor"]["status"], "operational")
 
         with patch("tupa.core.fetch_source", return_value=make_member("unknown")):
-            status = core.collect(None, timeout=1.0, sources=sources, member_sources=members)
+            status = collect(None, timeout=1.0, sources=sources, member_sources=members)
         self.assertEqual(status["members"]["edenor"]["status"], "unknown")
 
     def test_empty_member_is_unknown(self):
         with patch("tupa.core.fetch_source") as fetch:
-            status = core.collect(
+            status = collect(
                 None, timeout=1.0, sources={}, member_sources={"edenor": ()}
             )
         fetch.assert_not_called()
         self.assertEqual(status["members"]["edenor"]["status"], "unknown")
-
-    def test_duplicate_source_ids_are_aggregated(self):
-        results = []
-        lock = threading.Lock()
-
-        def fake(spec, **kwargs):
-            with lock:
-                results.append(spec.name)
-                status = "operational" if len(results) == 1 else "warn"
-            return make_member(status)
-
-        with patch("tupa.core.fetch_source", side_effect=fake):
-            status = core.collect(
-                None,
-                timeout=1.0,
-                sources={"dup": spec("dup", "edenor")},
-                member_sources={"edenor": ("dup", "dup")},
-            )
-        member = status["members"]["edenor"]
-        self.assertEqual(member["status"], "warn")
-        self.assertIn("dup: operational", member["comment"])
-        self.assertIn("dup: warn", member["comment"])
 
     def test_collect_from_config_forwards_settings(self):
         config = SimpleNamespace(
@@ -242,7 +231,7 @@ class CoreTests(unittest.TestCase):
         sources = {"one": spec("one", "one")}
         members = {"one": ("one",)}
         with patch("tupa.core.fetch_source", return_value=make_member("warn", comment="detalle")):
-            status = core.collect(None, timeout=1.0, sources=sources, member_sources=members)
+            status = collect(None, timeout=1.0, sources=sources, member_sources=members)
 
         self.assertEqual(set(status), {"updated", "members"})
         member = status["members"]["one"]

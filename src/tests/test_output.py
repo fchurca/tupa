@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from tupa.model import SourceSpec
 from tupa.output import _SCRIPT_HASH, render, render_html
+from tupa.sources import DEFAULT_SOURCES
 from tupa.version import get_version
 
 
@@ -26,7 +27,8 @@ class OutputTests(unittest.TestCase):
                         "comment": "<b>&co</b>",
                     }
                 },
-            }
+            },
+            sources=[],
         )
         self.assertIn(
             "TUPA⚡: Telemetría Unificada de Potencia Argentina".encode(), payload
@@ -43,7 +45,7 @@ class OutputTests(unittest.TestCase):
 
     def test_render_html_sources_dialog(self):
         sources = [
-            SourceSpec("cammesa_edenor", "cammesa_demand", "edenor", region=1077),
+            DEFAULT_SOURCES["cammesa_edenor"],
             SourceSpec(
                 "enre_edenor",
                 "enre_outages",
@@ -84,7 +86,7 @@ class OutputTests(unittest.TestCase):
         self.assertNotIn(b'href="javascript:', payload)
 
     def test_render_html_csp_hash_matches_script(self):
-        payload = render_html({"updated": "now", "members": {}}).decode("utf-8")
+        payload = render_html({"updated": "now", "members": {}}, sources=[]).decode("utf-8")
         script = re.search(r"<script>(.*?)</script>", payload, re.S)
         self.assertIsNotNone(script)
         digest = hashlib.sha256(script.group(1).encode("utf-8")).digest()

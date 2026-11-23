@@ -5,8 +5,8 @@ from http.client import HTTPConnection
 from http.server import ThreadingHTTPServer
 from unittest.mock import patch
 
-from tupa.model import SourceSpec
 from tupa.server import Handler, Snapshot
+from tupa.sources import DEFAULT_SOURCES
 
 
 def status(affected):
@@ -44,11 +44,8 @@ class SnapshotTests(unittest.TestCase):
 class HTTPTests(unittest.TestCase):
     def setUp(self):
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-        self.server.daemon_threads = True
         self.server.snapshot = Snapshot(60.0, lambda: status("operational"))
-        self.server.active_sources = [
-            SourceSpec("cammesa_edenor", "cammesa_demand", "edenor", region=1077)
-        ]
+        self.server.active_sources = [DEFAULT_SOURCES["cammesa_edenor"]]
         self.thread = threading.Thread(
             target=self.server.serve_forever,
             kwargs={"poll_interval": 0.01},

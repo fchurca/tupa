@@ -127,12 +127,8 @@ class _DeadlineHTTPHandler(HTTPHandler):
 
 
 class _DeadlineHTTPSHandler(HTTPSHandler):
-    def __init__(self, context: ssl.SSLContext | None = None):
-        super().__init__(context=context)
-        self.context = context
-
     def https_open(self, req):
-        return self.do_open(_DeadlineHTTPSConnection, req, context=self.context)
+        return self.do_open(_DeadlineHTTPSConnection, req, context=self._context)
 
 
 _CGNAT_NETWORK = ipaddress.ip_network("100.64.0.0/10")
@@ -206,7 +202,6 @@ def fetch_content(
     *,
     timeout: float,
     tls_context: ssl.SSLContext | None = None,
-    max_bytes: int = MAX_RESPONSE_BYTES,
     deadline: float | None = None,
 ) -> tuple[str, Mapping[str, str]]:
     remaining = _remaining(deadline, timeout)
@@ -217,8 +212,6 @@ def fetch_content(
             response = urlopen(request, timeout=remaining, context=tls_context)
         except URLError as exc:
             reason = exc.reason
-            if isinstance(reason, FetchTimeout):
-                raise reason from exc
             if deadline is not None and (
                 isinstance(reason, TimeoutError) or time.monotonic() >= deadline
             ):
@@ -228,10 +221,10 @@ def fetch_content(
             try:
                 chunks: list[bytes] = []
                 total = 0
-                while total <= max_bytes:
+                while total <= MAX_RESPONSE_BYTES:
                     if deadline is not None and time.monotonic() >= deadline:
                         raise FetchTimeout(f"fetch deadline after {timeout:g} seconds")
-                    chunk = response.read(min(8192, max_bytes + 1 - total))
+                    chunk = response.read(min(8192, MAX_RESPONSE_BYTES + 1 - total))
                     if not chunk:
                         break
                     chunks.append(chunk)
@@ -242,8 +235,8 @@ def fetch_content(
                     raise FetchTimeout(f"fetch deadline after {timeout:g} seconds") from exc
                 raise
             headers: Mapping[str, str] = getattr(response, "headers", {})
-    if len(raw) > max_bytes:
-        raise ValueError(f"response exceeds {max_bytes} bytes")
+    if len(raw) > MAX_RESPONSE_BYTES:
+        raise ValueError(f"response exceeds {MAX_RESPONSE_BYTES} bytes")
     try:
         return raw.decode("utf-8"), headers
     except UnicodeDecodeError:
@@ -424,16 +417,16 @@ def count_rows(data: dict, keys) -> int:
 
 @dataclass(frozen=True, slots=True)
 class Thresholds:
-    warn: int
-    high: int
-    disaster: int
+    warn: float
+    high: float
+    disaster: float
 
-    def classify(self, affected: int) -> str:
-        if affected >= self.disaster:
+    def classify(self, value: float) -> str:
+        if value >= self.disaster:
             return "disaster"
-        if affected >= self.high:
+        if value >= self.high:
             return "high"
-        if affected >= self.warn:
+        if value >= self.warn:
             return "warn"
         return "operational"
 
@@ -447,33 +440,8 @@ def thresholds_from(
     }
 
 
-DEFAULT_THRESHOLDS = thresholds_from(DEFAULT_CUSTOMERS, DEFAULT_LEVELS)
-
-
-def thresholds_for(
-    name: str, thresholds: Mapping[str, Thresholds] | None = None
-) -> Thresholds:
-    levels = DEFAULT_THRESHOLDS if thresholds is None else thresholds
+def thresholds_for(name: str, thresholds: Mapping[str, Thresholds]) -> Thresholds:
     try:
-        return levels[name.lower()]
+        return thresholds[name.lower()]
     except KeyError:
         raise ValueError(f"no thresholds configured for {name!r}") from None
-
-
-@dataclass(frozen=True, slots=True)
-class DemandThresholds:
-    warn: float
-    high: float
-    disaster: float
-
-    def classify(self, deficit: float) -> str:
-        if deficit >= self.disaster:
-            return "disaster"
-        if deficit >= self.high:
-            return "high"
-        if deficit >= self.warn:
-            return "warn"
-        return "operational"
-
-
-DEFAULT_DEMAND_THRESHOLDS = DemandThresholds(*DEFAULT_DEMAND_LEVELS)

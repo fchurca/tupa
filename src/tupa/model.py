@@ -46,7 +46,7 @@ class SourceSpec:
     name: str
     kind: str
     member: str
-    url: str | None = None
+    url: str
     empresa: str | None = None
     region: int | None = None
 
@@ -106,13 +106,10 @@ def aggregate(
         status = "unknown"
     comments = [f"{name}: {member.comment or member.status}" for name, member in results]
     for_latest = known if known else [member for _, member in results]
-    latest = max(
-        (datetime.fromisoformat(member.updated) for member in for_latest),
-        default=None,
-    )
+    latest = max(datetime.fromisoformat(member.updated) for member in for_latest)
     return make_member(
         status,
         comment="; ".join(comments),
-        updated=latest.isoformat(timespec="seconds") if latest else None,
+        updated=latest.isoformat(timespec="seconds"),
         tz=zone,
     )

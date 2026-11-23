@@ -57,11 +57,10 @@ def fetch_enre(
     empresa: str,
     url: str,
     timeout: float,
-    thresholds: Mapping[str, Thresholds] | None = None,
-    tz: tzinfo | None = None,
+    thresholds: Mapping[str, Thresholds],
+    tz: tzinfo,
     deadline: float | None = None,
 ) -> Member:
-    zone = tz if tz is not None else ART_TZ
     text, headers = fetch_content(
         url,
         timeout=timeout,
@@ -81,7 +80,7 @@ def fetch_enre(
         return make_member(
             "unknown",
             comment=f"ENRE no informa usuarios sin suministro: {raw_affected or 'sin dato'}",
-            tz=zone,
+            tz=tz,
         )
 
     active = count_rows(data, ACTIVE_KEYS)
@@ -93,7 +92,7 @@ def fetch_enre(
     if planned:
         detail.append(f"{planned} cortes programados")
     detail.append(f"ENRE ultimaActualizacion {reported_time}")
-    updated = _enre_timestamp(reported_time, headers, zone)
+    updated = _enre_timestamp(reported_time, headers, tz)
     if updated is None:
         detail.append("fecha no informada por ENRE")
-    return make_member(status, comment="; ".join(detail), updated=updated, tz=zone)
+    return make_member(status, comment="; ".join(detail), updated=updated, tz=tz)

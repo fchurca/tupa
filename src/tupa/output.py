@@ -9,7 +9,6 @@ from collections import Counter
 from collections.abc import Sequence
 
 from .model import STATUSES, SourceSpec
-from .sources import DEFAULT_SOURCES
 from .version import get_version
 
 STATUS_ORDER = ("operational", "warn", "high", "disaster", "unknown")
@@ -244,22 +243,14 @@ def _source_label(spec: SourceSpec) -> str:
     return f"{base} {spec.member.capitalize()}{region}"
 
 
-def _source_rows(specs: Sequence[SourceSpec] | None) -> list[tuple[str, str, str]]:
-    selected = DEFAULT_SOURCES.values() if specs is None else specs
-    rows: list[tuple[str, str, str]] = []
-    seen: set[str] = set()
-    for spec in selected:
-        if spec.name in seen:
-            continue
-        seen.add(spec.name)
-        default = DEFAULT_SOURCES.get(spec.name)
-        name = _source_label(default) if default is not None else spec.name
-        api = spec.url or (default.url if default is not None else "") or ""
-        rows.append((name, api, _DOCS_BY_KIND.get(spec.kind, "")))
-    return rows
+def _source_rows(specs: Sequence[SourceSpec]) -> list[tuple[str, str, str]]:
+    return [
+        (_source_label(spec), spec.url, _DOCS_BY_KIND.get(spec.kind, ""))
+        for spec in specs
+    ]
 
 
-def _sources_table(specs: Sequence[SourceSpec] | None) -> str:
+def _sources_table(specs: Sequence[SourceSpec]) -> str:
     rows = _source_rows(specs)
     body = "".join(
         f'          <tr><td>{_escape(name)}</td>'
@@ -315,7 +306,7 @@ def render(status: dict, *, indent: int | None = 2) -> bytes:
     )
 
 
-def render_html(status: dict, sources: Sequence[SourceSpec] | None = None) -> bytes:
+def render_html(status: dict, *, sources: Sequence[SourceSpec]) -> bytes:
     members = status.get("members", {})
     states = [_state(member.get("status", "unknown")) for member in members.values()]
     counts = Counter(states)

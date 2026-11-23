@@ -26,35 +26,21 @@ class Snapshot:
         self.ttl = ttl
         self.collector = collector
         self._lock = threading.Lock()
-        self._refresh_lock = threading.Lock()
         self._expires = 0.0
         self._status: dict | None = None
 
-    def _cached(self, now: float) -> dict | None:
-        if self._status is not None and now < self._expires:
-            return self._status
-        return None
-
     def get(self) -> dict:
         with self._lock:
-            cached = self._cached(time.monotonic())
-            if cached is not None:
-                return cached
-        with self._refresh_lock:
-            now = time.monotonic()
-            with self._lock:
-                cached = self._cached(now)
-                if cached is not None:
-                    return cached
+            if self._status is not None and time.monotonic() < self._expires:
+                return self._status
             try:
                 status = self.collector()
             except Exception:
                 log.exception("collection failed")
                 raise
-            with self._lock:
-                self._status = status
-                self._expires = time.monotonic() + self.ttl
-                return self._status
+            self._status = status
+            self._expires = time.monotonic() + self.ttl
+            return self._status
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -112,10 +98,9 @@ def run_server(config: Config) -> None:
     active_sources = [
         config.sources[source_id]
         for member in config.members
-        for source_id in config.member_sources.get(member, ())
+        for source_id in config.member_sources[member]
     ]
     server = ThreadingHTTPServer((config.host, config.port), Handler)
-    server.daemon_threads = True
     server.snapshot = snapshot
     server.active_sources = active_sources
     log.info("serving on http://%s:%s (ttl=%ss)", config.host, config.port, config.ttl)

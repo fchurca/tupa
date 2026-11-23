@@ -3,8 +3,9 @@ import unittest
 from pathlib import Path
 
 from tupa.sources.common import (
-    DEFAULT_THRESHOLDS,
-    DemandThresholds,
+    DEFAULT_CUSTOMERS,
+    DEFAULT_LEVELS,
+    Thresholds,
     decode_js_data,
     legacy_tls_context,
     parse_count,
@@ -13,6 +14,7 @@ from tupa.sources.common import (
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
+DEFAULT_THRESHOLDS = thresholds_from(DEFAULT_CUSTOMERS, DEFAULT_LEVELS)
 
 
 def fixture(name):
@@ -82,7 +84,7 @@ class CommonTests(unittest.TestCase):
         }
         for name, values in expected.items():
             with self.subTest(source=name):
-                thresholds = thresholds_for(name)
+                thresholds = thresholds_for(name, DEFAULT_THRESHOLDS)
                 self.assertEqual(
                     (thresholds.warn, thresholds.high, thresholds.disaster), values
                 )
@@ -95,7 +97,10 @@ class CommonTests(unittest.TestCase):
         self.assertEqual(set(DEFAULT_THRESHOLDS), set(expected))
 
     def test_thresholds_name_is_case_insensitive(self):
-        self.assertEqual(thresholds_for("Edenor"), thresholds_for("edenor"))
+        self.assertEqual(
+            thresholds_for("Edenor", DEFAULT_THRESHOLDS),
+            thresholds_for("edenor", DEFAULT_THRESHOLDS),
+        )
 
     def test_thresholds_from_custom_values(self):
         custom = thresholds_from({"x": 1000}, (0.01, 0.1, 0.5))
@@ -121,7 +126,7 @@ class CommonTests(unittest.TestCase):
         )
 
     def test_demand_thresholds(self):
-        thresholds = DemandThresholds(0.10, 0.25, 0.50)
+        thresholds = Thresholds(0.10, 0.25, 0.50)
         self.assertEqual(thresholds.classify(0.09), "operational")
         self.assertEqual(thresholds.classify(0.10), "warn")
         self.assertEqual(thresholds.classify(0.25), "high")

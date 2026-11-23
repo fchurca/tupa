@@ -7,8 +7,8 @@ import statistics
 from collections.abc import Sequence
 from datetime import datetime, tzinfo
 
-from ..model import ART_TZ, Member, SourceSpec, make_member
-from .common import DEFAULT_DEMAND_THRESHOLDS, DemandThresholds, fetch_text
+from ..model import Member, SourceSpec, make_member
+from .common import Thresholds, fetch_text
 
 BASE_URL = (
     "https://api.cammesa.com/demanda-svc/demanda/"
@@ -69,29 +69,26 @@ def fetch_demand(
     *,
     spec: SourceSpec,
     timeout: float,
-    thresholds: DemandThresholds | None = None,
-    tz: tzinfo | None = None,
+    thresholds: Thresholds,
+    tz: tzinfo,
     deadline: float | None = None,
 ) -> Member:
-    zone = tz if tz is not None else ART_TZ
-    url = spec.url or url_for(spec.region or 0)
-    payload = json.loads(fetch_text(url, timeout=timeout, deadline=deadline))
+    payload = json.loads(fetch_text(spec.url, timeout=timeout, deadline=deadline))
     rows = _rows(payload)
     if not rows:
         return make_member(
-            "unknown", comment="CAMMESA sin datos comparables de demanda", tz=zone
+            "unknown", comment="CAMMESA sin datos comparables de demanda", tz=tz
         )
     window = rows[-WINDOW:]
     median = statistics.median(row[3] for row in window)
     fecha, hoy, reference, deficit = min(
         reversed(window), key=lambda row: abs(row[3] - median)
     )
-    selected = DEFAULT_DEMAND_THRESHOLDS if thresholds is None else thresholds
-    updated = _timestamp(fecha, zone)
+    updated = _timestamp(fecha, tz)
     comment = (
         f"{hoy:.0f} MW; {deficit:.1%} bajo referencia {reference:.0f} MW; "
-        f"CAMMESA región {spec.region or '?'} {updated}"
+        f"CAMMESA región {spec.region} {updated}"
     )
     return make_member(
-        selected.classify(deficit), comment=comment, updated=updated, tz=zone
+        thresholds.classify(deficit), comment=comment, updated=updated, tz=tz
     )

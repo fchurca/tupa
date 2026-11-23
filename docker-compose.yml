@@ -3,7 +3,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    command: ["python", "-m", "tupa", "--serve"]
     ports:
       - "${PUBLISH_IP:-127.0.0.1}:${PUBLISH_PORT:-8000}:${TUPA_PORT:-8000}"
     env_file:

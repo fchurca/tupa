@@ -31,7 +31,8 @@ por defecto son todos. Cada miembro combina varias fuentes de datos e informa el
 peor estado conocido. La salida se puede usar directamente o redirigir a un
 archivo para servirla; se espera que cada consumidor sepa seleccionar los
 miembros relevantes. Véase [example.json](example.json). En modo demonio, TUPA
-sirve un panel HTML en `/` y JSON en `/api`.
+sirve un panel HTML en `/` y JSON en `/api`. El diálogo de fuentes del panel
+muestra solo las fuentes activas en la instancia.
 
 Configuración: [config.md](config.md) (en inglés). La mayoría de los usuarios no
 necesita cambiar nada: los valores por defecto están pensados para funcionar.
@@ -66,32 +67,16 @@ comando `tupa`.
 La versión se declara una sola vez en `pyproject.toml`. Después de actualizarla,
 creá una etiqueta de Git con el mismo valor `vX.Y.Z`.
 
-### Fuentes iniciales
+### Fuentes implementadas
 
-El trabajo comienza con las siguientes fuentes:
-
-- Edenor
-- Edesur
-- Transener
-- SADI
-- CAMMESA
-- SACME
-- Edelap
-- CortesDeLuz.com.ar (CDL, verificación cruzada)
-
-> **Relación con CDL:** CDL es útil, pero puede no estar disponible, su código
-> es cerrado y no puede ejecutarse de forma independiente. TUPA es su
-> complemento automatizable, no un reemplazo: aporta una salida de estado
-> automatizable y usa CDL para control cruzado cuando otras fuentes no están
-> disponibles. Las propias fuentes de CDL se muestran en el
-> [diagrama](diagram.pu).
->
-> En pocas palabras: tenemos CDL en casa.
+Edenor y Edesur se obtienen de los cortes de ENRE y la demanda de CAMMESA. TUPA
+es un agregador automatizable, no un reemplazo de los servicios de monitoreo
+independientes.
 
 ### Topología
 
-- [Topología del sistema y dependencias previas](topology.md)
-- [diagrama](diagram.pu)
+El contexto de las fuentes previas está en [topology.md](topology.md) y
+[diagram.pu](diagram.pu).
 
 ### Estado
 
@@ -110,29 +95,6 @@ zona horaria configurada (por defecto, hora de Argentina).
 
 Los cortes programados son cortes: usan los mismos umbrales de severidad que
 cualquier otro corte.
-
-## Tareas
-
-- [X] Documentación en español
-- [X] POC
-  - stdlib de Python 3, invocable una vez para cron o como demonio HTTP
-  - Docker con python:3.12-slim
-  - Implementar salida JSON
-  - Implementar las fuentes Edenor y Edesur
-- [ ] Salida
-  - [X] HTML
-  - [ ] SVG
-  - [ ] Webhooks
-- [ ] Fuentes y miembros
-  - [ ] Transener
-  - [ ] SADI
-  - [ ] SACME
-  - [ ] Edelap
-  - [ ] Otras (a definir)
-- [ ] Otras jurisdicciones argentinas
-
-Las fuentes iniciales están planificadas en este orden; CDL es solo de
-validación y no tiene tarea de implementación.
 
 ## Contribuciones
 

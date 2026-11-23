@@ -26,10 +26,11 @@ The JSON file defaults to `config.json` in the working directory and can be
 selected with `--config PATH` or `TUPA_CONFIG`.
 
 If an explicitly selected config file is missing, TUPA logs an info message and
-uses defaults. If a config file exists but cannot be read/parsed, or contains an
-invalid top-level shape or unknown top-level keys, TUPA logs a warning, ignores the invalid part
-and uses defaults for it. `--once` forces one-shot JSON output regardless of
-`serve` settings. Invalid values exit with status 2.
+uses defaults. If a config file exists but cannot be read/parsed or has an
+invalid top-level shape, TUPA logs a warning and uses defaults. Unknown top-level
+keys are ignored with a warning while valid keys still apply. `--once` forces
+one-shot JSON output regardless of `serve` settings. Invalid values exit with
+status 2.
 
 ## Quick start
 

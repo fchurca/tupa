@@ -9,7 +9,7 @@ from datetime import tzinfo
 from .config import Config
 from .model import Member, SourceSpec, aggregate, now_rfc3339, unknown_member
 from .sources import fetch_source
-from .sources.common import DemandThresholds, Thresholds
+from .sources.common import Thresholds
 
 log = logging.getLogger(__name__)
 
@@ -23,9 +23,9 @@ def collect(
     sources: Mapping[str, SourceSpec],
     member_sources: Mapping[str, Sequence[str]],
     timeout: float,
-    thresholds: Mapping[str, Thresholds] | None = None,
-    demand_thresholds: DemandThresholds | None = None,
-    tz: tzinfo | None = None,
+    thresholds: Mapping[str, Thresholds],
+    demand_thresholds: Thresholds,
+    tz: tzinfo,
 ) -> dict:
     definition = member_sources
     selected = tuple(definition) if not members else tuple(members)
@@ -37,21 +37,18 @@ def collect(
     updated = now_rfc3339(tz)
     deadline = time.monotonic() + timeout
     groups: dict[str, list[tuple[str, Member]]] = {name: [] for name in selected}
-    futures: dict[Future, tuple[str, str]] = {}
-    pool = _POOL if tasks else None
-    if pool is not None:
-        futures = {
-            pool.submit(
-                fetch_source,
-                spec,
-                timeout=timeout,
-                thresholds=thresholds,
-                demand_thresholds=demand_thresholds,
-                tz=tz,
-                deadline=deadline,
-            ): (member, source_id)
-            for member, source_id, spec in tasks
-        }
+    futures: dict[Future, tuple[str, str]] = {
+        _POOL.submit(
+            fetch_source,
+            spec,
+            timeout=timeout,
+            thresholds=thresholds,
+            demand_thresholds=demand_thresholds,
+            tz=tz,
+            deadline=deadline,
+        ): (member, source_id)
+        for member, source_id, spec in tasks
+    }
     done, pending = wait(futures, timeout=max(0.0, deadline - time.monotonic()))
     for future in done:
         member, source_id = futures[future]

@@ -65,31 +65,15 @@ command.
 The version is declared once in `pyproject.toml`. After bumping it, create a Git
 tag with the same `vX.Y.Z` value.
 
-### Initial sources
+### Implemented sources
 
-Work begins with the following sources:
-
-- Edenor
-- Edesur
-- Transener
-- SADI
-- CAMMESA
-- SACME
-- Edelap
-- CortesDeLuz.com.ar (CDL, crosschecking)
-
-> **Relationship to CDL:** CDL is useful but can be unavailable, its code is
-> closed, and it can't be run independently. TUPA is its automatable complement,
-> not a replacement: it adds scriptable status output and uses CDL for
-> cross-checking when other sources are unavailable. CDL's own data feeds are
-> shown in the [diagram](diagram.pu).
->
-> In short: we have CDL at home.
+Edenor and Edesur are supported through ENRE outage data and CAMMESA demand
+data. TUPA is an automatable aggregator, not a replacement for independent
+monitoring services.
 
 ### Topology
 
-- [System topology and upstream dependencies](topology.md)
-- [diagram](diagram.pu)
+Upstream context lives in [topology.md](topology.md) and [diagram.pu](diagram.pu).
 
 ### Status
 
@@ -107,29 +91,6 @@ timezone (Argentina Time by default).
 
 Planned outages are outages: they use the same severity thresholds as any other
 outage.
-
-## Todo
-
-- [X] Spanish documentation
-- [X] POC
-  - stdlib Python 3, callable once for cron or as a daemon for HTTP
-  - Docker with python:3.12-slim
-  - Implement JSON output
-  - Implement Edenor and Edesur sources
-- [ ] Output
-  - [X] HTML
-  - [ ] SVG
-  - [ ] Webhooks
-- [ ] Sources and members
-  - [ ] Transener
-  - [ ] SADI
-  - [ ] SACME
-  - [ ] Edelap
-  - [ ] Other (TBD)
-- [ ] Other Argentine jurisdictions
-
-Initial sources are planned in this order; CDL is validation-only and has no
-implementation task.
 
 ## Contributing
 

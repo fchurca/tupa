@@ -13,12 +13,15 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request
 
 import tupa.sources.common as common
-from tupa.model import ART_TZ, SourceSpec
+from tupa.model import ART_TZ
 from tupa.sources import DEFAULT_SOURCES, cammesa
 from tupa.sources.common import (
+    DEFAULT_CUSTOMERS,
+    DEFAULT_DEMAND_LEVELS,
+    DEFAULT_LEVELS,
     USER_AGENT,
-    DemandThresholds,
     FetchTimeout,
+    Thresholds,
     _target_privacy,
     fetch_text,
     legacy_tls_context,
@@ -27,6 +30,8 @@ from tupa.sources.common import (
 from tupa.sources.enre import fetch_enre
 
 FIXTURES = Path(__file__).parent / "fixtures"
+DEFAULT_THRESHOLDS = thresholds_from(DEFAULT_CUSTOMERS, DEFAULT_LEVELS)
+DEMAND_THRESHOLDS = Thresholds(*DEFAULT_DEMAND_LEVELS)
 
 
 class FakeResponse(io.BytesIO):
@@ -40,7 +45,7 @@ def response(name, headers=None):
 
 
 class SourceTests(unittest.TestCase):
-    def fetch(self, source_name, fixture_name, *, thresholds=None, headers=None):
+    def fetch(self, source_name, fixture_name, *, thresholds=DEFAULT_THRESHOLDS, headers=None):
         spec = DEFAULT_SOURCES[source_name]
         with patch(
             "tupa.sources.common.urlopen",
@@ -166,11 +171,11 @@ class SourceTests(unittest.TestCase):
             self.fetch("enre_edesur", "broken.js")
 
     def test_cammesa_high_deficit(self):
-        spec = SourceSpec("cammesa_edenor", "cammesa_demand", "edenor", region=1077)
+        spec = DEFAULT_SOURCES["cammesa_edenor"]
         with patch(
             "tupa.sources.common.urlopen", return_value=response("cammesa_high.json")
         ) as mock:
-            member = cammesa.fetch_demand(spec=spec, timeout=4.0, tz=ART_TZ)
+            member = cammesa.fetch_demand(spec=spec, timeout=4.0, thresholds=DEMAND_THRESHOLDS, tz=ART_TZ)
         self.assertEqual(member.status, "high")
         self.assertIn("700 MW", member.comment)
         self.assertIn("30.0% bajo referencia", member.comment)
@@ -179,8 +184,8 @@ class SourceTests(unittest.TestCase):
         self.assertEqual(mock.call_args.kwargs["timeout"], 4.0)
 
     def test_cammesa_custom_thresholds(self):
-        spec = SourceSpec("cammesa_edenor", "cammesa_demand", "edenor", region=1077)
-        thresholds = DemandThresholds(0.25, 0.40, 0.50)
+        spec = DEFAULT_SOURCES["cammesa_edenor"]
+        thresholds = Thresholds(0.25, 0.40, 0.50)
         with patch(
             "tupa.sources.common.urlopen", return_value=response("cammesa_high.json")
         ):
@@ -188,16 +193,16 @@ class SourceTests(unittest.TestCase):
         self.assertEqual(member.status, "warn")
 
     def test_cammesa_without_comparable_data_is_unknown(self):
-        spec = SourceSpec("cammesa_edenor", "cammesa_demand", "edenor", region=1077)
+        spec = DEFAULT_SOURCES["cammesa_edenor"]
         with patch(
             "tupa.sources.common.urlopen", return_value=response("cammesa_no_data.json")
         ):
-            member = cammesa.fetch_demand(spec=spec, timeout=1.0, tz=ART_TZ)
+            member = cammesa.fetch_demand(spec=spec, timeout=1.0, thresholds=DEMAND_THRESHOLDS, tz=ART_TZ)
         self.assertEqual(member.status, "unknown")
         self.assertIn("sin datos comparables", member.comment)
 
     def test_cammesa_comment_matches_displayed_values(self):
-        spec = SourceSpec("cammesa_edenor", "cammesa_demand", "edenor", region=1077)
+        spec = DEFAULT_SOURCES["cammesa_edenor"]
         payload = [
             {
                 "fecha": "2026-11-21T13:50:00.000-0300",
@@ -219,12 +224,12 @@ class SourceTests(unittest.TestCase):
             },
         ]
         with patch("tupa.sources.cammesa.fetch_text", return_value=json.dumps(payload)):
-            member = cammesa.fetch_demand(spec=spec, timeout=1.0, tz=ART_TZ)
+            member = cammesa.fetch_demand(spec=spec, timeout=1.0, thresholds=DEMAND_THRESHOLDS, tz=ART_TZ)
         self.assertIn("700 MW; 30.0% bajo referencia 1000 MW", member.comment)
         self.assertEqual(member.updated, "2026-11-21T13:55:00-03:00")
 
     def test_cammesa_invalid_fecha_is_rejected(self):
-        spec = SourceSpec("cammesa_edenor", "cammesa_demand", "edenor", region=1077)
+        spec = DEFAULT_SOURCES["cammesa_edenor"]
         payload = [
             {
                 "fecha": "not-a-date",
@@ -237,10 +242,10 @@ class SourceTests(unittest.TestCase):
             patch("tupa.sources.cammesa.fetch_text", return_value=json.dumps(payload)),
             self.assertRaisesRegex(ValueError, "fecha no válida"),
         ):
-            cammesa.fetch_demand(spec=spec, timeout=1.0, tz=ART_TZ)
+            cammesa.fetch_demand(spec=spec, timeout=1.0, thresholds=DEMAND_THRESHOLDS, tz=ART_TZ)
 
     def test_cammesa_naive_fecha_uses_local_offset(self):
-        spec = SourceSpec("cammesa_edenor", "cammesa_demand", "edenor", region=1077)
+        spec = DEFAULT_SOURCES["cammesa_edenor"]
         payload = [
             {
                 "fecha": "2026-11-21T14:00:00",
@@ -250,11 +255,11 @@ class SourceTests(unittest.TestCase):
             }
         ]
         with patch("tupa.sources.cammesa.fetch_text", return_value=json.dumps(payload)):
-            member = cammesa.fetch_demand(spec=spec, timeout=1.0, tz=ART_TZ)
+            member = cammesa.fetch_demand(spec=spec, timeout=1.0, thresholds=DEMAND_THRESHOLDS, tz=ART_TZ)
         self.assertEqual(member.updated, "2026-11-21T14:00:00-03:00")
 
     def test_cammesa_zero_demand_is_disaster(self):
-        spec = SourceSpec("cammesa_edenor", "cammesa_demand", "edenor", region=1077)
+        spec = DEFAULT_SOURCES["cammesa_edenor"]
         payload = [
             {
                 "fecha": "2026-11-21T14:00:00-0300",
@@ -264,12 +269,12 @@ class SourceTests(unittest.TestCase):
             }
         ]
         with patch("tupa.sources.cammesa.fetch_text", return_value=json.dumps(payload)):
-            member = cammesa.fetch_demand(spec=spec, timeout=1.0, tz=ART_TZ)
+            member = cammesa.fetch_demand(spec=spec, timeout=1.0, thresholds=DEMAND_THRESHOLDS, tz=ART_TZ)
         self.assertEqual(member.status, "disaster")
         self.assertIn("0 MW; 100.0% bajo referencia", member.comment)
 
     def test_cammesa_orders_rows_before_selecting_window(self):
-        spec = SourceSpec("cammesa_edenor", "cammesa_demand", "edenor", region=1077)
+        spec = DEFAULT_SOURCES["cammesa_edenor"]
         def row(minute, deficit):
             return {
                 "fecha": f"2026-11-21T13:{minute}:00-0300",
@@ -282,7 +287,7 @@ class SourceTests(unittest.TestCase):
         payload[0]["fecha"] = "2026-11-21T14:05:00-0300"
         payload[3]["fecha"] = "2026-11-21T14:00:00-0300"
         with patch("tupa.sources.cammesa.fetch_text", return_value=json.dumps(payload)):
-            member = cammesa.fetch_demand(spec=spec, timeout=1.0, tz=ART_TZ)
+            member = cammesa.fetch_demand(spec=spec, timeout=1.0, thresholds=DEMAND_THRESHOLDS, tz=ART_TZ)
         self.assertEqual(member.updated, "2026-11-21T14:00:00-03:00")
         self.assertEqual(member.status, "disaster")
 
@@ -298,6 +303,7 @@ class SourceTests(unittest.TestCase):
                 empresa=spec.empresa,
                 url=spec.url,
                 timeout=4.0,
+                thresholds=DEFAULT_THRESHOLDS,
                 tz=timezone.utc,
             )
         self.assertEqual(member.updated, "2026-11-21T16:25:00+00:00")
@@ -401,13 +407,3 @@ class SourceTests(unittest.TestCase):
         for url in ("file:///etc/passwd", "ftp://example.test/file"):
             with self.subTest(url=url), self.assertRaises(URLError):
                 fetch_text(url, timeout=1.0)
-
-    def test_fetch_unwraps_timeout_from_urlerror(self):
-        with patch(
-            "tupa.sources.common.urlopen",
-            side_effect=URLError(FetchTimeout("cancelled during connect")),
-        ):
-            with self.assertRaises(FetchTimeout):
-                fetch_text(
-                    "https://example.test/", timeout=1.0, deadline=time.monotonic() + 1
-                )
