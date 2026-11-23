@@ -22,11 +22,12 @@ out. Compose interpolates `TZ` from the shell or `.env` for `TUPA_TZ=system`; it
 does not discover the host timezone. Output defaults to Argentina Time.
 
 Values not supplied anywhere use the defaults below. Configuration is optional.
-The JSON file is selected with `--config PATH` or `TUPA_CONFIG`.
+The JSON file defaults to `config.json` in the working directory and can be
+selected with `--config PATH` or `TUPA_CONFIG`.
 
-If no config file is found, TUPA logs an info message and uses defaults. If a
-config file exists but cannot be read/parsed, or contains an invalid top-level
-shape or unknown top-level keys, TUPA logs a warning, ignores the invalid part
+If an explicitly selected config file is missing, TUPA logs an info message and
+uses defaults. If a config file exists but cannot be read/parsed, or contains an
+invalid top-level shape or unknown top-level keys, TUPA logs a warning, ignores the invalid part
 and uses defaults for it. `--once` forces one-shot JSON output regardless of
 `serve` settings. Invalid values exit with status 2.
 
@@ -132,7 +133,7 @@ the source name.
 | Upstream timeout (seconds) | `--timeout SECONDS` | `TUPA_TIMEOUT` | `timeout` | `20` |
 | Daemon cache TTL (seconds) | `--ttl SECONDS` | `TUPA_TTL` | `ttl` | `60` |
 | JSON indentation (0-8 spaces) | `--indent SPACES` | `TUPA_INDENT` | `indent` | `2` |
-| JSON file path | `--config PATH` | `TUPA_CONFIG` | — | none |
+| JSON file path | `--config PATH` | `TUPA_CONFIG` | — | `./config.json` |
 | Output timezone | `--tz NAME` | `TUPA_TZ` | `tz` | Argentina Time (ART) |
 | Customer baselines | `--customers NAME=COUNT,...` | `TUPA_CUSTOMERS` | `customers` | see below |
 | Severity fractions | `--levels WARN,HIGH,DISASTER` | `TUPA_LEVELS` | `levels` | `0.0001,0.005,0.05` |

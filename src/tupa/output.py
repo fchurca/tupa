@@ -6,9 +6,10 @@ import html
 import json
 import re
 from collections import Counter
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 
 from .model import STATUSES, SourceSpec
+from .sources import DEFAULT_SOURCES
 from .version import get_version
 
 STATUS_ORDER = ("operational", "warn", "high", "disaster", "unknown")
@@ -231,44 +232,30 @@ _STYLE = """    <style>
       }
     </style>"""
 
-_CAMMESA_DOCS = "https://cammesaweb.cammesa.com/informes-y-estadisticas/"
-_ENRE_DOCS = "https://www.enre.gov.ar/mapacortes/index.html"
-
-_SOURCE_INFO: dict[str, tuple[str, str, str]] = {
-    "enre_edenor": ("ENRE Edenor", "https://www.enre.gov.ar/paginacorte/js/data_EDN.js", _ENRE_DOCS),
-    "enre_edesur": ("ENRE Edesur", "https://www.enre.gov.ar/paginacorte/js/data_EDS.js", _ENRE_DOCS),
-    "cammesa_edenor": (
-        "CAMMESA Edenor (1077)",
-        "https://api.cammesa.com/demanda-svc/demanda/ObtieneDemandaYTemperaturaRegion?id_region=1077",
-        _CAMMESA_DOCS,
-    ),
-    "cammesa_edesur": (
-        "CAMMESA Edesur (1078)",
-        "https://api.cammesa.com/demanda-svc/demanda/ObtieneDemandaYTemperaturaRegion?id_region=1078",
-        _CAMMESA_DOCS,
-    ),
+_DOCS_BY_KIND = {
+    "enre_outages": "https://www.enre.gov.ar/mapacortes/index.html",
+    "cammesa_demand": "https://cammesaweb.cammesa.com/informes-y-estadisticas/",
 }
 
 
+def _source_label(spec: SourceSpec) -> str:
+    base = "ENRE" if spec.kind == "enre_outages" else "CAMMESA"
+    region = f" ({spec.region})" if spec.region else ""
+    return f"{base} {spec.member.capitalize()}{region}"
+
+
 def _source_rows(specs: Sequence[SourceSpec] | None) -> list[tuple[str, str, str]]:
-    if specs is None:
-        return [row for row in _SOURCE_INFO.values()]
+    selected = DEFAULT_SOURCES.values() if specs is None else specs
     rows: list[tuple[str, str, str]] = []
     seen: set[str] = set()
-    for spec in specs:
+    for spec in selected:
         if spec.name in seen:
             continue
         seen.add(spec.name)
-        info = _SOURCE_INFO.get(spec.name)
-        if info is not None:
-            name, api, docs = info
-            if spec.url:
-                api = spec.url
-            rows.append((name, api, docs))
-            continue
-        api = spec.url or ""
-        docs = _CAMMESA_DOCS if spec.kind == "cammesa_demand" else _ENRE_DOCS
-        rows.append((spec.name, api, docs))
+        default = DEFAULT_SOURCES.get(spec.name)
+        name = _source_label(default) if default is not None else spec.name
+        api = spec.url or (default.url if default is not None else "") or ""
+        rows.append((name, api, _DOCS_BY_KIND.get(spec.kind, "")))
     return rows
 
 

@@ -4,7 +4,7 @@ from collections.abc import Mapping
 from datetime import tzinfo
 
 from ..model import Member, SourceSpec
-from ..sources.common import DEFAULT_DEMAND_THRESHOLDS, DemandThresholds, Thresholds
+from ..sources.common import DemandThresholds, Thresholds
 from . import cammesa
 from .cammesa import fetch_demand
 from .enre import fetch_enre
@@ -69,7 +69,7 @@ def fetch_source(
         return fetch_demand(
             spec=spec,
             timeout=timeout,
-            thresholds=demand_thresholds or DEFAULT_DEMAND_THRESHOLDS,
+            thresholds=demand_thresholds,
             tz=tz,
             deadline=deadline,
         )

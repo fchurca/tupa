@@ -14,6 +14,8 @@ class ConfigTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
+        self.addCleanup(os.chdir, os.getcwd())
+        os.chdir(self.tmp.name)
         self.json = Path(self.tmp.name) / "tupa.json"
 
     def write_json(self, data):
@@ -60,7 +62,6 @@ class ConfigTests(unittest.TestCase):
         path = self.write_json({"selected_members": ["edenor"], "host": "json.example", "serve": False})
         with self.clean_env(TUPA_CONFIG=path, TUPA_HOST="env.example", TUPA_SERVE="true"):
             config = load_config([])
-        self.assertEqual(config.config_path, path)
         self.assertEqual(config.members, ("edenor",))
         self.assertEqual(config.host, "env.example")
         self.assertTrue(config.serve)
@@ -244,12 +245,11 @@ class ConfigTests(unittest.TestCase):
             load_config(["--tz", "Mars/Olympus"])
         self.assertEqual(ctx.exception.code, 2)
 
-    def test_strict_key_is_unknown_and_ignored(self):
-        path = self.write_json({"strict": True, "nope": 1})
-        with self.clean_env(TUPA_CONFIG=path), self.assertLogs("tupa.config", level="WARNING") as logs:
+    def test_default_config_json_in_working_directory(self):
+        Path("config.json").write_text(json.dumps({"ttl": 15}), encoding="utf-8")
+        with self.clean_env():
             config = load_config([])
-        self.assertEqual(config.ttl, 60.0)
-        self.assertTrue(any("strict" in m for m in logs.output))
+        self.assertEqual(config.ttl, 15.0)
 
     def test_invalid_number_exits_two(self):
         with self.clean_env(), self.quiet_error(), self.assertRaises(SystemExit) as ctx:
@@ -259,7 +259,6 @@ class ConfigTests(unittest.TestCase):
     def test_missing_config_uses_defaults(self):
         with self.clean_env(), self.assertLogs("tupa.config", level="INFO") as logs:
             config = load_config(["--config", str(self.json)])
-        self.assertEqual(config.config_path, str(self.json))
         self.assertEqual(config.members, ("edenor", "edesur"))
         self.assertEqual(config.ttl, 60.0)
         self.assertTrue(any("using defaults" in m for m in logs.output))
@@ -267,7 +266,6 @@ class ConfigTests(unittest.TestCase):
     def test_missing_config_from_env_uses_defaults(self):
         with self.clean_env(TUPA_CONFIG=str(self.json)), self.assertLogs("tupa.config", level="INFO"):
             config = load_config([])
-        self.assertEqual(config.config_path, str(self.json))
         self.assertEqual(config.members, ("edenor", "edesur"))
         self.assertEqual(config.ttl, 60.0)
 

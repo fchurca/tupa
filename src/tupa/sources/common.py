@@ -113,29 +113,12 @@ def _connect_with_deadline(address, timeout: float | None, source_address, **kwa
 
 class _DeadlineHTTPConnection(http.client.HTTPConnection):
     def _create_connection(self, address, timeout=None, source_address=None, **kwargs):
-        sock = _connect_with_deadline(address, timeout, source_address, **kwargs)
-        deadline = getattr(_fetch_local, "deadline", None)
-        if deadline is not None:
-            sock.settimeout(_remaining(deadline))
-        _fetch_local.socket = sock
-        return sock
+        return _connect_with_deadline(address, timeout, source_address, **kwargs)
 
 
 class _DeadlineHTTPSConnection(http.client.HTTPSConnection):
     def _create_connection(self, address, timeout=None, source_address=None, **kwargs):
-        sock = _connect_with_deadline(address, timeout, source_address, **kwargs)
-        deadline = getattr(_fetch_local, "deadline", None)
-        if deadline is not None:
-            sock.settimeout(_remaining(deadline))
-        _fetch_local.socket = sock
-        return sock
-
-    def connect(self) -> None:
-        super().connect()
-        deadline = getattr(_fetch_local, "deadline", None)
-        if deadline is not None:
-            self.sock.settimeout(_remaining(deadline))
-        _fetch_local.socket = self.sock
+        return _connect_with_deadline(address, timeout, source_address, **kwargs)
 
 
 class _DeadlineHTTPHandler(HTTPHandler):
@@ -185,11 +168,6 @@ def _target_privacy(host: str) -> bool | None:
     return _restricted_ip(address)
 
 
-def _is_private_target(host: str) -> bool:
-    result = _target_privacy(host)
-    return True if result is None else result
-
-
 class _RestrictedRedirectHandler(HTTPRedirectHandler):
     def __init__(self, allow_private: bool = False):
         super().__init__()
@@ -223,14 +201,6 @@ def urlopen(request: Request, *, timeout: float, context: ssl.SSLContext | None 
         _fetch_local.allow_private = previous
 
 
-def _response_socket(response: object) -> socket.socket | None:
-    raw = getattr(getattr(response, "fp", None), "raw", None)
-    for candidate in (getattr(raw, "_sock", None), raw):
-        if isinstance(candidate, socket.socket):
-            return candidate
-    return None
-
-
 def fetch_content(
     url: str,
     *,
@@ -242,50 +212,36 @@ def fetch_content(
     remaining = _remaining(deadline, timeout)
     assert remaining is not None
     request = Request(url, headers={"User-Agent": USER_AGENT})
-    previous_socket = getattr(_fetch_local, "socket", None)
-    _fetch_local.socket = None
-    try:
-        with _fetch_deadline(deadline):
+    with _fetch_deadline(deadline):
+        try:
+            response = urlopen(request, timeout=remaining, context=tls_context)
+        except URLError as exc:
+            reason = exc.reason
+            if isinstance(reason, FetchTimeout):
+                raise reason from exc
+            if deadline is not None and (
+                isinstance(reason, TimeoutError) or time.monotonic() >= deadline
+            ):
+                raise FetchTimeout(f"fetch deadline after {timeout:g} seconds") from exc
+            raise
+        with response:
             try:
-                response = urlopen(request, timeout=remaining, context=tls_context)
-            except URLError as exc:
-                reason = exc.reason
-                if isinstance(reason, FetchTimeout):
-                    raise reason from exc
-                if deadline is not None and (
-                    isinstance(reason, TimeoutError) or time.monotonic() >= deadline
-                ):
-                    raise FetchTimeout(
-                        f"fetch deadline after {timeout:g} seconds"
-                    ) from exc
-                raise
-            with response:
-                sock = _response_socket(response) or getattr(_fetch_local, "socket", None)
-                if sock is not None and deadline is not None:
-                    sock.settimeout(_remaining(deadline, remaining))
-                try:
-                    chunks: list[bytes] = []
-                    total = 0
-                    while total <= max_bytes:
-                        if deadline is not None and time.monotonic() >= deadline:
-                            raise FetchTimeout(
-                                f"fetch deadline after {timeout:g} seconds"
-                            )
-                        chunk = response.read(min(8192, max_bytes + 1 - total))
-                        if not chunk:
-                            break
-                        chunks.append(chunk)
-                        total += len(chunk)
-                    raw = b"".join(chunks)
-                except (OSError, http.client.IncompleteRead) as exc:
+                chunks: list[bytes] = []
+                total = 0
+                while total <= max_bytes:
                     if deadline is not None and time.monotonic() >= deadline:
-                        raise FetchTimeout(
-                            f"fetch deadline after {timeout:g} seconds"
-                        ) from exc
-                    raise
-                headers: Mapping[str, str] = getattr(response, "headers", {})
-    finally:
-        _fetch_local.socket = previous_socket
+                        raise FetchTimeout(f"fetch deadline after {timeout:g} seconds")
+                    chunk = response.read(min(8192, max_bytes + 1 - total))
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+                    total += len(chunk)
+                raw = b"".join(chunks)
+            except (OSError, http.client.IncompleteRead) as exc:
+                if deadline is not None and time.monotonic() >= deadline:
+                    raise FetchTimeout(f"fetch deadline after {timeout:g} seconds") from exc
+                raise
+            headers: Mapping[str, str] = getattr(response, "headers", {})
     if len(raw) > max_bytes:
         raise ValueError(f"response exceeds {max_bytes} bytes")
     try:

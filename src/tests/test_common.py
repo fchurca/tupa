@@ -4,7 +4,6 @@ from pathlib import Path
 
 from tupa.sources.common import (
     DEFAULT_THRESHOLDS,
-    MAX_RESPONSE_BYTES,
     DemandThresholds,
     decode_js_data,
     legacy_tls_context,
@@ -127,6 +126,3 @@ class CommonTests(unittest.TestCase):
         self.assertEqual(thresholds.classify(0.10), "warn")
         self.assertEqual(thresholds.classify(0.25), "high")
         self.assertEqual(thresholds.classify(0.50), "disaster")
-
-    def test_max_response_bytes_constant(self):
-        self.assertEqual(MAX_RESPONSE_BYTES, 1_000_000)

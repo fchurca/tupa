@@ -57,7 +57,6 @@ class Config:
     timeout: float
     ttl: float
     indent: int
-    config_path: str | None
     thresholds: Mapping[str, Thresholds]
     demand_thresholds: DemandThresholds
 
@@ -184,14 +183,16 @@ def load_config(argv: Sequence[str] | None = None) -> Config:
     def fail(message: str) -> None:
         parser.error(message)
 
-    config_path = args.config or os.environ.get("TUPA_CONFIG")
+    selected_path = args.config or os.environ.get("TUPA_CONFIG")
+    config_path = selected_path or "config.json"
     file_config: Mapping[str, object] = {}
     if config_path:
         path = Path(config_path)
         try:
             loaded = json.loads(path.read_text(encoding="utf-8"))
         except FileNotFoundError:
-            log.info("config file %s not found; using defaults", config_path)
+            if selected_path:
+                log.info("config file %s not found; using defaults", config_path)
             loaded = {}
         except (OSError, UnicodeError, json.JSONDecodeError) as exc:
             log.warning(
@@ -285,7 +286,6 @@ def load_config(argv: Sequence[str] | None = None) -> Config:
         timeout=timeout,
         ttl=ttl,
         indent=indent,
-        config_path=config_path,
         thresholds=thresholds_from(customers, levels),
         demand_thresholds=DemandThresholds(*demand_levels),
     )

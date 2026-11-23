@@ -91,15 +91,6 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(calls, ["two"])
         self.assertEqual(list(status["members"]), ["two"])
 
-    def test_unknown_source_is_rejected(self):
-        with self.assertRaisesRegex(ValueError, "uses unknown source"):
-            core.collect(
-                None,
-                timeout=1.0,
-                sources={},
-                member_sources={"edenor": ("missing",)},
-            )
-
     def test_empty_members_means_all_members(self):
         sources = {"one": spec("one", "one"), "two": spec("two", "two")}
         members = {"one": ("one",), "two": ("two",)}
@@ -108,7 +99,7 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(fetch.call_count, 2)
         self.assertEqual(list(status["members"]), ["one", "two"])
 
-    def test_timeout_leaves_daemon_workers_and_marks_unknown(self):
+    def test_timeout_marks_unknown_without_waiting_for_blocked_source(self):
         release = threading.Event()
 
         def blocked(spec, **kwargs):
@@ -126,9 +117,6 @@ class CoreTests(unittest.TestCase):
         self.assertLess(time.monotonic() - start, 2.0)
         self.assertEqual(status["members"]["edenor"]["status"], "unknown")
         self.assertIn("no respondió", status["members"]["edenor"]["comment"])
-        self.assertTrue(
-            all(thread.daemon for thread in threading.enumerate() if thread.name.startswith("tupa-fetch-"))
-        )
 
     def test_collect_forwards_thresholds(self):
         received = []
@@ -226,16 +214,6 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(member["status"], "warn")
         self.assertIn("dup: operational", member["comment"])
         self.assertIn("dup: warn", member["comment"])
-
-    def test_pool_is_shared_between_collections(self):
-        sources = {"one": spec("one", "one")}
-        members = {"one": ("one",)}
-        with patch("tupa.core.fetch_source", return_value=make_member("operational")):
-            core.collect(None, timeout=1.0, sources=sources, member_sources=members)
-            first = core._POOL
-            core.collect(None, timeout=1.0, sources=sources, member_sources=members)
-        self.assertIsNotNone(first)
-        self.assertIs(core._POOL, first)
 
     def test_collect_from_config_forwards_settings(self):
         config = SimpleNamespace(

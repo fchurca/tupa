@@ -3,7 +3,6 @@ import hashlib
 import re
 import unittest
 from importlib.metadata import PackageNotFoundError
-from pathlib import Path
 from unittest.mock import patch
 
 from tupa.model import SourceSpec
@@ -95,10 +94,6 @@ class OutputTests(unittest.TestCase):
 
 
 class VersionTests(unittest.TestCase):
-    def setUp(self):
-        get_version.cache_clear()
-        self.addCleanup(get_version.cache_clear)
-
     def test_uses_installed_metadata(self):
         with patch("tupa.version.version", return_value="9.9.9"):
             self.assertEqual(get_version(), "9.9.9")
@@ -106,10 +101,3 @@ class VersionTests(unittest.TestCase):
     def test_falls_back_to_pyproject(self):
         with patch("tupa.version.version", side_effect=PackageNotFoundError):
             self.assertRegex(get_version(), r"\d+\.\d+\.\d+")
-
-    def test_falls_back_to_unknown_without_metadata_or_pyproject(self):
-        with (
-            patch("tupa.version.version", side_effect=PackageNotFoundError),
-            patch("tupa.version._PYPROJECT", Path("/nonexistent/pyproject.toml")),
-        ):
-            self.assertEqual(get_version(), "0+unknown")

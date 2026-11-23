@@ -19,7 +19,7 @@ from tupa.sources.common import (
     USER_AGENT,
     DemandThresholds,
     FetchTimeout,
-    _is_private_target,
+    _target_privacy,
     fetch_text,
     legacy_tls_context,
     thresholds_from,
@@ -304,56 +304,68 @@ class SourceTests(unittest.TestCase):
 
     def test_fetch_enforces_deadline_during_body(self):
         class SlowBody(BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+            writes_body = True
+
             def do_GET(self):
                 self.send_response(200)
                 self.send_header("Content-Length", "20")
                 self.end_headers()
                 try:
-                    for _ in range(20):
-                        self.wfile.write(b"x")
-                        self.wfile.flush()
-                        time.sleep(0.05)
+                    if self.writes_body:
+                        for _ in range(20):
+                            self.wfile.write(b"x")
+                            self.wfile.flush()
+                            time.sleep(0.05)
+                    else:
+                        time.sleep(1)
                 except OSError:
                     return
 
             def log_message(self, *args):
                 return
 
-        server = ThreadingHTTPServer(("127.0.0.1", 0), SlowBody)
-        server.daemon_threads = True
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        try:
-            start = time.monotonic()
-            with self.assertRaises(FetchTimeout):
-                fetch_text(
-                    f"http://127.0.0.1:{server.server_port}/",
-                    timeout=5.0,
-                    deadline=start + 0.3,
-                )
-            self.assertLess(time.monotonic() - start, 2.0)
-        finally:
-            server.shutdown()
-            server.server_close()
-            thread.join(timeout=2)
+        class NoBody(SlowBody):
+            writes_body = False
+
+        def check(handler):
+            server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+            server.daemon_threads = True
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                start = time.monotonic()
+                with self.assertRaises(FetchTimeout):
+                    fetch_text(
+                        f"http://127.0.0.1:{server.server_port}/",
+                        timeout=5.0,
+                        deadline=start + 0.3,
+                    )
+                self.assertLess(time.monotonic() - start, 2.0)
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
+        for handler in (SlowBody, NoBody):
+            with self.subTest(handler=handler.__name__):
+                check(handler)
 
     def test_private_redirect_targets_are_rejected(self):
-        self.assertTrue(_is_private_target("127.0.0.1"))
-        self.assertTrue(_is_private_target("::1"))
-        self.assertTrue(_is_private_target("10.0.0.1"))
-        self.assertTrue(_is_private_target("169.254.169.254"))
-        self.assertFalse(_is_private_target("8.8.8.8"))
+        for host in ("127.0.0.1", "::1", "10.0.0.1", "169.254.169.254"):
+            with self.subTest(host=host):
+                self.assertIsNot(_target_privacy(host), False)
+        self.assertIs(_target_privacy("8.8.8.8"), False)
 
     def test_special_address_ranges_are_restricted(self):
         for host in ("100.64.0.1", "100.100.100.200", "224.0.0.1", "0.0.0.0"):
             with self.subTest(host=host):
-                self.assertTrue(_is_private_target(host))
+                self.assertIsNot(_target_privacy(host), False)
         with patch(
             "tupa.sources.common.socket.getaddrinfo",
             side_effect=socket.gaierror("resolver down"),
         ):
-            self.assertIsNone(common._target_privacy("unresolvable.example"))
-            self.assertTrue(_is_private_target("unresolvable.example"))
+            self.assertIsNone(_target_privacy("unresolvable.example"))
 
     def test_connect_rejects_restricted_addresses(self):
         previous = getattr(common._fetch_local, "allow_private", False)
@@ -399,32 +411,3 @@ class SourceTests(unittest.TestCase):
                 fetch_text(
                     "https://example.test/", timeout=1.0, deadline=time.monotonic() + 1
                 )
-
-    def test_fetch_timeout_when_body_stalls(self):
-        class NoBody(BaseHTTPRequestHandler):
-            def do_GET(self):
-                self.send_response(200)
-                self.send_header("Content-Length", "20")
-                self.end_headers()
-                time.sleep(1)
-
-            def log_message(self, *args):
-                return
-
-        server = ThreadingHTTPServer(("127.0.0.1", 0), NoBody)
-        server.daemon_threads = True
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        try:
-            start = time.monotonic()
-            with self.assertRaises(FetchTimeout):
-                fetch_text(
-                    f"http://127.0.0.1:{server.server_port}/",
-                    timeout=5.0,
-                    deadline=start + 0.2,
-                )
-            self.assertLess(time.monotonic() - start, 2.0)
-        finally:
-            server.shutdown()
-            server.server_close()
-            thread.join(timeout=2)
