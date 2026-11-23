@@ -23,7 +23,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     status = collect_from_config(config)
     try:
-        sys.stdout.buffer.write(render(status, indent=config.indent))
+        sys.stdout.buffer.write(render(status))
         sys.stdout.buffer.flush()
     except BrokenPipeError:
         return 0

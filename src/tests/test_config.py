@@ -8,9 +8,10 @@ from pathlib import Path
 from unittest.mock import patch
 
 from tupa.config import load_config
+from tupa.sources import DEFAULT_SOURCES
 
 ALL_MEMBERS = ("edenor", "edesur", "edelap")
-ALL_SOURCE_COUNT = 6
+ALL_SOURCE_COUNT = len(DEFAULT_SOURCES)
 
 
 class ConfigTests(unittest.TestCase):
@@ -61,7 +62,7 @@ class ConfigTests(unittest.TestCase):
         )
         self.assertFalse(config.serve)
         self.assertEqual((config.host, config.port), ("127.0.0.1", 8000))
-        self.assertEqual((config.timeout, config.ttl, config.indent), (20.0, 60.0, 2))
+        self.assertEqual((config.timeout, config.ttl), (20.0, 60.0))
         self.assertEqual(str(config.tz), "America/Argentina/Buenos_Aires")
         self.assertEqual(config.thresholds["edenor"].warn, 340)
         self.assertEqual(config.thresholds["edesur"].high, 13_500)

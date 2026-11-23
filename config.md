@@ -42,7 +42,6 @@ status 2.
   "port": 8000,
   "timeout": 20,
   "ttl": 60,
-  "indent": 2,
   "tz": "system",
   "customers": {"edenor": 3400000, "edesur": 2700000, "edelap": 400000},
   "levels": [0.0001, 0.005, 0.05],
@@ -138,7 +137,6 @@ the source name.
 | Listen port | `--port PORT` | `TUPA_PORT` | `port` | `8000` |
 | Upstream timeout (seconds) | `--timeout SECONDS` | `TUPA_TIMEOUT` | `timeout` | `20` |
 | Daemon cache TTL (seconds) | `--ttl SECONDS` | `TUPA_TTL` | `ttl` | `60` |
-| JSON indentation (0-8 spaces) | `--indent SPACES` | `TUPA_INDENT` | `indent` | `2` |
 | JSON file path | `--config PATH` | `TUPA_CONFIG` | — | `./config.json` |
 | Output timezone | `--tz NAME` | `TUPA_TZ` | `tz` | Argentina Time (ART) |
 | Customer baselines | `--customers NAME=COUNT,...` | `TUPA_CUSTOMERS` | `customers` | see below |
@@ -156,8 +154,8 @@ Notes:
 - `--once` wins over `--serve`, `TUPA_SERVE` and `"serve": true`.
 - Booleans accept `1`, `true`, `yes`, `on` and `0`, `false`, `no`, `off`
   (case-insensitive).
-- `port` is 1-65535, `timeout` is at least 0.1, `ttl` is at least 0 (zero
-  disables caching), and `indent` is 0-8.
+- `port` is 1-65535, `timeout` is at least 0.1, and `ttl` is at least 0 (zero
+  disables caching).
 - `timeout` is the overall deadline for a collection and the socket timeout
   budget for each upstream fetch. Fetches run in parallel under that one
   deadline, so the default 20 seconds bounds the whole collection, not each
@@ -174,6 +172,9 @@ Notes:
 - In daemon mode a cache miss refreshes synchronously, so the first request
   after the TTL expires can take up to the timeout to respond. If collection
   fails, the request returns an error instead of stale data.
+- URLs without a scheme are tried as HTTPS first and HTTP second to tolerate
+  legacy Argentine energy infrastructure; explicit schemes must be `https` or
+  `http`.
 - Redirects follow urllib defaults: at most 10 distinct URLs and 4 repeats of
   the same URL. TUPA does not filter resolved addresses; use a DNSSEC-validating
   resolver and restrict egress if DNS or redirect trust matters in your deployment.

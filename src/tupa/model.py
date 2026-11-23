@@ -45,7 +45,6 @@ def now_rfc3339(tz: tzinfo = ART_TZ) -> str:
 
 @dataclass(frozen=True, slots=True)
 class SourceSpec:
-    name: str
     kind: str
     member: str
     url: str

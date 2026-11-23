@@ -108,4 +108,5 @@ respective terms.
 * **ENRE TLS:** only legacy static-RSA TLS 1.2; TUPA uses `@SECLEVEL=1` for ENRE only, with certificate checks still on.
 * **ENRE API(n't):** no API — data lives in generated `data_EDN.js` / `data_EDS.js`.
 * **DNS trust:** TUPA uses the OS resolver and follows upstream redirects without filtering resolved addresses. Prefer a DNSSEC-validating resolver and restrict egress where that matters.
+* **Schemaless endpoints:** TUPA tries HTTPS first, then HTTP, to tolerate legacy Argentine energy infrastructure; explicit non-HTTP(S) schemes are rejected.
 

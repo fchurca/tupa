@@ -32,7 +32,6 @@ CONFIG_KEYS = frozenset(
         "port",
         "timeout",
         "ttl",
-        "indent",
         "customers",
         "levels",
         "demand_levels",
@@ -55,7 +54,6 @@ class Config:
     port: int
     timeout: float
     ttl: float
-    indent: int
     thresholds: Mapping[str, Thresholds]
     demand_thresholds: Thresholds
 
@@ -170,7 +168,6 @@ def load_config(argv: Sequence[str] | None = None) -> Config:
     parser.add_argument("--port", default=None)
     parser.add_argument("--timeout", default=None)
     parser.add_argument("--ttl", default=None)
-    parser.add_argument("--indent", default=None)
     parser.add_argument("--config", default=None)
     parser.add_argument("--tz", default=None)
     parser.add_argument("--customers", default=None)
@@ -254,7 +251,6 @@ def load_config(argv: Sequence[str] | None = None) -> Config:
         port = _int(value("port", "TUPA_PORT", args.port, 8000), "port", 1, 65535)
         timeout = _float(value("timeout", "TUPA_TIMEOUT", args.timeout, 20.0), "timeout", 0.1)
         ttl = _float(value("ttl", "TUPA_TTL", args.ttl, 60.0), "ttl", 0.0)
-        indent = _int(value("indent", "TUPA_INDENT", args.indent, 2), "indent", 0, 8)
         customers = {
             **DEFAULT_CUSTOMERS,
             **_customers(value("customers", "TUPA_CUSTOMERS", args.customers, {}), "customers"),
@@ -278,7 +274,6 @@ def load_config(argv: Sequence[str] | None = None) -> Config:
         port=port,
         timeout=timeout,
         ttl=ttl,
-        indent=indent,
         thresholds=thresholds_from(customers, levels),
         demand_thresholds=Thresholds(*demand_levels),
     )

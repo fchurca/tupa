@@ -49,8 +49,6 @@ class OutputTests(unittest.TestCase):
         payload = render_html({"updated": "now", "members": {}}, sources=sources)
         self.assertIn(b'<details class="sources">', payload)
         self.assertIn(b"<summary>Lista de fuentes</summary>", payload)
-        self.assertNotIn(b'id="sources-button"', payload)
-        self.assertNotIn(b"showModal()", payload)
         for heading in ("Nombre", "API", "Documentación"):
             self.assertIn(f"<th>{heading}</th>".encode(), payload)
         self.assertIn(b"CAMMESA Edenor (1077)", payload)

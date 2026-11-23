@@ -23,7 +23,6 @@ def status(*states):
 class CliTests(unittest.TestCase):
     def configure(self, mock_load, serve=False):
         mock_load.return_value.serve = serve
-        mock_load.return_value.indent = 2
         mock_load.return_value.members = ()
         mock_load.return_value.timeout = 20.0
         mock_load.return_value.thresholds = {}

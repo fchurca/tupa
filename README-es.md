@@ -112,3 +112,4 @@ respectivos términos.
 * **ENRE TLS:** solo TLS 1.2 con RSA estático; TUPA usa `@SECLEVEL=1` solo para ENRE, con verificación de certificado activa.
 * **ENRE API(n't):** no hay API; los datos están en `data_EDN.js` / `data_EDS.js`.
 * **Confianza DNS:** TUPA usa el resolvedor del sistema y sigue redirecciones sin filtrar direcciones resueltas. Preferí un resolvedor que valide DNSSEC y restringí el egress donde importe.
+* **Endpoints sin esquema:** TUPA intenta HTTPS primero y después HTTP para tolerar infraestructuras energéticas argentinas legacy; los esquemas explícitos que no sean HTTP(S) se rechazan.

@@ -12,7 +12,6 @@ from .oceba import fetch_oceba
 
 DEFAULT_SOURCES: dict[str, SourceSpec] = {
     "enre_edenor": SourceSpec(
-        name="enre_edenor",
         kind="enre_outages",
         member="edenor",
         url="https://www.enre.gov.ar/paginacorte/js/data_EDN.js",
@@ -21,7 +20,6 @@ DEFAULT_SOURCES: dict[str, SourceSpec] = {
         empresa="EDENOR",
     ),
     "enre_edesur": SourceSpec(
-        name="enre_edesur",
         kind="enre_outages",
         member="edesur",
         url="https://www.enre.gov.ar/paginacorte/js/data_EDS.js",
@@ -30,7 +28,6 @@ DEFAULT_SOURCES: dict[str, SourceSpec] = {
         empresa="EDESUR",
     ),
     "cammesa_edenor": SourceSpec(
-        name="cammesa_edenor",
         kind="cammesa_demand",
         member="edenor",
         url=cammesa.url_for(1077),
@@ -39,7 +36,6 @@ DEFAULT_SOURCES: dict[str, SourceSpec] = {
         region=1077,
     ),
     "cammesa_edesur": SourceSpec(
-        name="cammesa_edesur",
         kind="cammesa_demand",
         member="edesur",
         url=cammesa.url_for(1078),
@@ -48,7 +44,6 @@ DEFAULT_SOURCES: dict[str, SourceSpec] = {
         region=1078,
     ),
     "cammesa_edelap": SourceSpec(
-        name="cammesa_edelap",
         kind="cammesa_demand",
         member="edelap",
         url=cammesa.url_for(1943),
@@ -57,7 +52,6 @@ DEFAULT_SOURCES: dict[str, SourceSpec] = {
         region=1943,
     ),
     "oceba_edelap": SourceSpec(
-        name="oceba_edelap",
         kind="oceba_outages",
         member="edelap",
         url=oceba.URL,

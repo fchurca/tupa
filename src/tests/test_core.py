@@ -11,13 +11,12 @@ from tupa.sources.common import DEFAULT_DEMAND_LEVELS, Thresholds
 DEMAND_THRESHOLDS = Thresholds(*DEFAULT_DEMAND_LEVELS)
 
 
-def spec(name, member):
+def spec(member):
     return SourceSpec(
-        name,
         "enre_outages",
         member,
         url="https://example.test",
-        label=name,
+        label=member,
         docs_url="https://docs.example.test",
         empresa="TEST",
     )
@@ -41,9 +40,9 @@ class CoreTests(unittest.TestCase):
         def bad(spec, **kwargs):
             raise RuntimeError("down")
 
-        sources = {"bad": spec("bad", "alpha"), "good": spec("good", "zeta")}
+        sources = {"bad": spec("alpha"), "good": spec("zeta")}
         members = {"alpha": ("bad",), "zeta": ("good",)}
-        with patch("tupa.core.fetch_source", side_effect=lambda s, **kw: (bad if s.name == "bad" else good)(s, **kw)):
+        with patch("tupa.core.fetch_source", side_effect=lambda s, **kw: (bad if s.member == "alpha" else good)(s, **kw)):
             status = collect(
                 None,
                 timeout=3.5,
@@ -74,7 +73,7 @@ class CoreTests(unittest.TestCase):
             status = collect(
                 None,
                 timeout=1.0,
-                sources={"one": spec("one", "one")},
+                sources={"one": spec("one")},
                 member_sources={"one": ("one",)},
                 tz=zone,
             )
@@ -86,7 +85,7 @@ class CoreTests(unittest.TestCase):
         def slow(spec, **kwargs):
             raise TimeoutError()
 
-        sources = {"slow": spec("slow", "edenor")}
+        sources = {"slow": spec("edenor")}
         members = {"edenor": ("slow",)}
         with patch("tupa.core.fetch_source", side_effect=slow):
             status = collect(None, timeout=10.0, sources=sources, member_sources=members)
@@ -98,10 +97,10 @@ class CoreTests(unittest.TestCase):
         calls = []
 
         def one(spec, **kwargs):
-            calls.append(spec.name)
+            calls.append(spec.member)
             return make_member("operational")
 
-        sources = {"one": spec("one", "one"), "two": spec("two", "two")}
+        sources = {"one": spec("one"), "two": spec("two")}
         members = {"one": ("one",), "two": ("two",)}
         with patch("tupa.core.fetch_source", side_effect=one):
             status = collect(["two"], timeout=1.0, sources=sources, member_sources=members)
@@ -110,7 +109,7 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(list(status["members"]), ["two"])
 
     def test_empty_members_means_all_members(self):
-        sources = {"one": spec("one", "one"), "two": spec("two", "two")}
+        sources = {"one": spec("one"), "two": spec("two")}
         members = {"one": ("one",), "two": ("two",)}
         with patch("tupa.core.fetch_source", return_value=make_member("operational")) as fetch:
             status = collect([], timeout=1.0, sources=sources, member_sources=members)
@@ -124,7 +123,7 @@ class CoreTests(unittest.TestCase):
             release.wait(5)
             return make_member("operational")
 
-        sources = {"slow": spec("slow", "edenor")}
+        sources = {"slow": spec("edenor")}
         members = {"edenor": ("slow",)}
         start = time.monotonic()
         try:
@@ -145,7 +144,7 @@ class CoreTests(unittest.TestCase):
 
         thresholds = {"edenor": object()}
         demand_thresholds = object()
-        sources = {"one": spec("one", "edenor")}
+        sources = {"one": spec("edenor")}
         members = {"edenor": ("one",)}
         with patch("tupa.core.fetch_source", side_effect=one):
             collect(
@@ -167,7 +166,7 @@ class CoreTests(unittest.TestCase):
             return make_member("disaster", comment="60% bajo", updated="2026-01-01T00:01:00-03:00")
 
         sources = {
-            "enre": spec("enre", "edenor"),
+            "enre": spec("edenor"),
             "cammesa": DEFAULT_SOURCES["cammesa_edenor"],
         }
         members = {"edenor": ("enre", "cammesa")}
@@ -195,7 +194,7 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(status["members"]["edenor"]["status"], "unknown")
 
     def test_status_matches_cddl_shape(self):
-        sources = {"one": spec("one", "one")}
+        sources = {"one": spec("one")}
         members = {"one": ("one",)}
         with patch("tupa.core.fetch_source", return_value=make_member("warn", comment="detalle")):
             status = collect(None, timeout=1.0, sources=sources, member_sources=members)

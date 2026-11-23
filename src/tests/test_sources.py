@@ -430,7 +430,33 @@ class SourceTests(unittest.TestCase):
             deadline=None,
         )
 
-    def test_non_http_schemes_are_not_opened(self):
-        for url in ("file:///etc/passwd", "ftp://example.test/file"):
-            with self.subTest(url=url), self.assertRaises(URLError):
-                fetch_text(url, timeout=1.0)
+    def test_explicit_non_http_schemes_are_rejected(self):
+        with patch("tupa.sources.common.urlopen") as mock:
+            for url in (
+                "file:///etc/passwd",
+                "ftp://example.test/file",
+                "mailto:foo@example.test",
+            ):
+                with self.subTest(url=url), self.assertRaises(URLError):
+                    fetch_text(url, timeout=1.0)
+        mock.assert_not_called()
+
+    def test_schemaless_url_tries_https_then_http(self):
+        with patch(
+            "tupa.sources.common.urlopen",
+            side_effect=[URLError("https failed"), response("edenor_active.js")],
+        ) as mock:
+            text = fetch_text("example.test/data", timeout=1.0)
+        self.assertTrue(text.startswith("var data ="))
+        self.assertEqual(
+            [candidate.args[0].full_url for candidate in mock.call_args_list],
+            ["https://example.test/data", "http://example.test/data"],
+        )
+
+    def test_explicit_scheme_does_not_fall_back(self):
+        with patch(
+            "tupa.sources.common.urlopen", side_effect=URLError("down")
+        ) as mock:
+            with self.assertRaises(URLError):
+                fetch_text("https://example.test/data", timeout=1.0)
+        self.assertEqual(mock.call_count, 1)

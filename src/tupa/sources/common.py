@@ -128,19 +128,33 @@ def urlopen(request: Request, *, timeout: float, context: ssl.SSLContext | None 
     return response
 
 
-def fetch_content(
+_EXPLICIT_SCHEME = re.compile(r"^([A-Za-z][A-Za-z0-9+.-]*):(?://|[^0-9])")
+
+
+def _candidate_urls(url: str) -> tuple[str, ...]:
+    text = url.strip()
+    match = _EXPLICIT_SCHEME.match(text)
+    if match:
+        scheme = match.group(1).lower()
+        if scheme not in {"http", "https"}:
+            raise URLError(f"unsupported url type: {scheme}")
+        return (text,)
+    if text.startswith("//"):
+        return (f"https:{text}", f"http:{text}")
+    return (f"https://{text}", f"http://{text}")
+
+
+def _read_response(
     url: str,
     *,
     timeout: float,
-    tls_context: ssl.SSLContext | None = None,
-    deadline: float | None = None,
-) -> tuple[str, Mapping[str, str]]:
-    remaining = _remaining(deadline, timeout)
-    assert remaining is not None
+    tls_context: ssl.SSLContext | None,
+    deadline: float | None,
+) -> tuple[bytes, Mapping[str, str]]:
     request = Request(url, headers={"User-Agent": USER_AGENT})
     with _fetch_deadline(deadline):
         try:
-            response = urlopen(request, timeout=remaining, context=tls_context)
+            response = urlopen(request, timeout=timeout, context=tls_context)
         except URLError as exc:
             reason = exc.reason
             if deadline is not None and (
@@ -161,6 +175,8 @@ def fetch_content(
                     chunks.append(chunk)
                     total += len(chunk)
                 raw = b"".join(chunks)
+            except TimeoutError:
+                raise
             except (OSError, http.client.IncompleteRead) as exc:
                 if deadline is not None and time.monotonic() >= deadline:
                     raise TimeoutError(f"fetch deadline after {timeout:g} seconds") from exc
@@ -168,6 +184,35 @@ def fetch_content(
             headers: Mapping[str, str] = getattr(response, "headers", {})
     if len(raw) > MAX_RESPONSE_BYTES:
         raise ValueError(f"response exceeds {MAX_RESPONSE_BYTES} bytes")
+    return raw, headers
+
+
+def fetch_content(
+    url: str,
+    *,
+    timeout: float,
+    tls_context: ssl.SSLContext | None = None,
+    deadline: float | None = None,
+) -> tuple[str, Mapping[str, str]]:
+    candidates = _candidate_urls(url)
+    for index, candidate in enumerate(candidates):
+        if deadline is not None and time.monotonic() >= deadline:
+            raise TimeoutError(f"fetch deadline after {timeout:g} seconds")
+        remaining = _remaining(deadline, timeout)
+        try:
+            raw, headers = _read_response(
+                candidate,
+                timeout=remaining,
+                tls_context=tls_context,
+                deadline=deadline,
+            )
+        except TimeoutError:
+            raise
+        except (OSError, http.client.HTTPException):
+            if index + 1 == len(candidates):
+                raise
+            continue
+        break
     try:
         return raw.decode("utf-8"), headers
     except UnicodeDecodeError:
