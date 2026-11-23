@@ -23,12 +23,6 @@ def status(*states):
 class CliTests(unittest.TestCase):
     def configure(self, mock_load, serve=False):
         mock_load.return_value.serve = serve
-        mock_load.return_value.members = ()
-        mock_load.return_value.timeout = 20.0
-        mock_load.return_value.thresholds = {}
-        mock_load.return_value.demand_thresholds = None
-        mock_load.return_value.sources = {}
-        mock_load.return_value.member_sources = {}
 
     def run_main(self, states, argv=None):
         stdout = io.BytesIO()
@@ -44,7 +38,7 @@ class CliTests(unittest.TestCase):
     def test_script_mode_writes_json_and_returns_zero(self):
         code, output = self.run_main(["operational", "unknown"])
         self.assertEqual(code, 0)
-        self.assertIn(b'"status": "operational"', output)
+        self.assertIn(b'"status":"operational"', output)
 
     def test_all_unknown_returns_one(self):
         code, _ = self.run_main(["unknown", "unknown"])

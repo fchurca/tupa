@@ -209,12 +209,8 @@ _STYLE = """    <style>
       }
     </style>"""
 
-def _source_rows(specs: Sequence[SourceSpec]) -> list[tuple[str, str, str]]:
-    return [(spec.label, spec.url, spec.docs_url) for spec in specs]
-
-
 def _sources_table(specs: Sequence[SourceSpec]) -> str:
-    rows = _source_rows(specs)
+    rows = [(spec.label, spec.url, spec.docs_url) for spec in specs]
     body = "".join(
         f'          <tr><td>{_escape(name)}</td>'
         f'<td><a href="{_escape(_safe_href(api))}" target="_blank" rel="noreferrer">{_escape(api or "—")}</a></td>'
@@ -249,10 +245,10 @@ def _state(value: object) -> str:
     return text if text in STATUSES else "unknown"
 
 
-def render(status: dict, *, indent: int | None = 2) -> bytes:
-    return (json.dumps(status, ensure_ascii=False, indent=indent) + "\n").encode(
-        "utf-8", errors="replace"
-    )
+def render(status: dict) -> bytes:
+    return (
+        json.dumps(status, ensure_ascii=False, separators=(",", ":")) + "\n"
+    ).encode("utf-8", errors="replace")
 
 
 def render_html(status: dict, *, sources: Sequence[SourceSpec]) -> bytes:

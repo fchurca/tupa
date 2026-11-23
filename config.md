@@ -29,8 +29,8 @@ If an explicitly selected config file is missing, TUPA logs an info message and
 uses defaults. If a config file exists but cannot be read/parsed or has an
 invalid top-level shape, TUPA logs a warning and uses defaults. Unknown top-level
 keys are ignored with a warning while valid keys still apply. `--once` forces
-one-shot JSON output regardless of `serve` settings. Invalid values exit with
-status 2.
+one-shot compact JSON output regardless of `serve` settings. Invalid values exit
+with status 2.
 
 ## Quick start
 
@@ -172,9 +172,8 @@ Notes:
 - In daemon mode a cache miss refreshes synchronously, so the first request
   after the TTL expires can take up to the timeout to respond. If collection
   fails, the request returns an error instead of stale data.
-- URLs without a scheme are tried as HTTPS first and HTTP second to tolerate
-  legacy Argentine energy infrastructure; explicit schemes must be `https` or
-  `http`.
+- URLs without a scheme default to HTTPS only; there is no HTTP fallback.
+  Explicit `http` or `https` URLs are used as-is; other schemes are rejected.
 - Redirects follow urllib defaults: at most 10 distinct URLs and 4 repeats of
   the same URL. TUPA does not filter resolved addresses; use a DNSSEC-validating
   resolver and restrict egress if DNS or redirect trust matters in your deployment.
@@ -200,7 +199,7 @@ one.
 
 In `--serve` mode, `/` renders a standalone HTML dashboard with a strict
 Content-Security-Policy and no external scripts, and `/api` returns the same
-status as JSON. `HEAD` is supported for both.
+status as compact JSON. `HEAD` is supported for both.
 
 ## Outage severity thresholds
 

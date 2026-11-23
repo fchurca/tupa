@@ -67,7 +67,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(503, "Status unavailable")
             return
         body = (
-            render(status, indent=None)
+            render(status)
             if path == "/api"
             else render_html(status, sources=self.server.active_sources)
         )

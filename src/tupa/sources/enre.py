@@ -7,8 +7,6 @@ from email.utils import parsedate_to_datetime
 
 from ..model import ART_TZ, Member, make_member
 from .common import (
-    ACTIVE_KEYS,
-    PLANNED_KEYS,
     Thresholds,
     count_rows,
     decode_js_data,
@@ -17,6 +15,9 @@ from .common import (
     parse_count,
     thresholds_for,
 )
+
+ACTIVE_KEYS = ("cortesPreventivos", "cortesServicioMedia", "cortesServicioBaja")
+PLANNED_KEYS = ("cortesProgramados", "cortesComunicados")
 
 
 def _last_modified(headers: Mapping[str, str], tz: tzinfo) -> datetime | None:

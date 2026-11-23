@@ -28,9 +28,6 @@ from ..version import get_version
 USER_AGENT = f"TUPA/{get_version()} (+Telemetría Unificada de Potencia Argentina)"
 MAX_RESPONSE_BYTES = 1_000_000
 
-ACTIVE_KEYS = ("cortesPreventivos", "cortesServicioMedia", "cortesServicioBaja")
-PLANNED_KEYS = ("cortesProgramados", "cortesComunicados")
-
 DEFAULT_CUSTOMERS = {
     "edenor": 3_400_000,
     "edesur": 2_700_000,
@@ -131,17 +128,17 @@ def urlopen(request: Request, *, timeout: float, context: ssl.SSLContext | None 
 _EXPLICIT_SCHEME = re.compile(r"^([A-Za-z][A-Za-z0-9+.-]*):(?://|[^0-9])")
 
 
-def _candidate_urls(url: str) -> tuple[str, ...]:
+def _normalize_url(url: str) -> str:
     text = url.strip()
     match = _EXPLICIT_SCHEME.match(text)
     if match:
         scheme = match.group(1).lower()
         if scheme not in {"http", "https"}:
             raise URLError(f"unsupported url type: {scheme}")
-        return (text,)
+        return text
     if text.startswith("//"):
-        return (f"https:{text}", f"http:{text}")
-    return (f"https://{text}", f"http://{text}")
+        return f"https:{text}"
+    return f"https://{text}"
 
 
 def _read_response(
@@ -175,8 +172,6 @@ def _read_response(
                     chunks.append(chunk)
                     total += len(chunk)
                 raw = b"".join(chunks)
-            except TimeoutError:
-                raise
             except (OSError, http.client.IncompleteRead) as exc:
                 if deadline is not None and time.monotonic() >= deadline:
                     raise TimeoutError(f"fetch deadline after {timeout:g} seconds") from exc
@@ -194,25 +189,15 @@ def fetch_content(
     tls_context: ssl.SSLContext | None = None,
     deadline: float | None = None,
 ) -> tuple[str, Mapping[str, str]]:
-    candidates = _candidate_urls(url)
-    for index, candidate in enumerate(candidates):
-        if deadline is not None and time.monotonic() >= deadline:
-            raise TimeoutError(f"fetch deadline after {timeout:g} seconds")
-        remaining = _remaining(deadline, timeout)
-        try:
-            raw, headers = _read_response(
-                candidate,
-                timeout=remaining,
-                tls_context=tls_context,
-                deadline=deadline,
-            )
-        except TimeoutError:
-            raise
-        except (OSError, http.client.HTTPException):
-            if index + 1 == len(candidates):
-                raise
-            continue
-        break
+    if deadline is not None and time.monotonic() >= deadline:
+        raise TimeoutError(f"fetch deadline after {timeout:g} seconds")
+    remaining = _remaining(deadline, timeout)
+    raw, headers = _read_response(
+        _normalize_url(url),
+        timeout=remaining,
+        tls_context=tls_context,
+        deadline=deadline,
+    )
     try:
         return raw.decode("utf-8"), headers
     except UnicodeDecodeError:

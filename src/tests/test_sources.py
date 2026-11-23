@@ -441,16 +441,16 @@ class SourceTests(unittest.TestCase):
                     fetch_text(url, timeout=1.0)
         mock.assert_not_called()
 
-    def test_schemaless_url_tries_https_then_http(self):
+    def test_schemaless_url_defaults_to_https(self):
         with patch(
             "tupa.sources.common.urlopen",
-            side_effect=[URLError("https failed"), response("edenor_active.js")],
+            return_value=response("edenor_active.js"),
         ) as mock:
             text = fetch_text("example.test/data", timeout=1.0)
         self.assertTrue(text.startswith("var data ="))
         self.assertEqual(
-            [candidate.args[0].full_url for candidate in mock.call_args_list],
-            ["https://example.test/data", "http://example.test/data"],
+            [call.args[0].full_url for call in mock.call_args_list],
+            ["https://example.test/data"],
         )
 
     def test_explicit_scheme_does_not_fall_back(self):

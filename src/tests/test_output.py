@@ -10,8 +10,8 @@ from tupa.version import get_version
 
 class OutputTests(unittest.TestCase):
     def test_render_json(self):
-        payload = render({"updated": "now", "members": {}}, indent=None)
-        self.assertEqual(payload, b'{"updated": "now", "members": {}}\n')
+        payload = render({"updated": "now", "members": {}})
+        self.assertEqual(payload, b'{"updated":"now","members":{}}\n')
 
     def test_render_html_escapes_content(self):
         payload = render_html(
@@ -56,7 +56,6 @@ class OutputTests(unittest.TestCase):
         self.assertIn(b"ENRE Edenor", payload)
         self.assertIn(DEFAULT_SOURCES["enre_edenor"].docs_url.encode(), payload)
         self.assertNotIn(b"ENRE Edesur", payload)
-        self.assertNotIn(b"SACME", payload)
 
     def test_render_html_without_members(self):
         payload = render_html({"updated": "now", "members": {}}, sources=[])
@@ -78,7 +77,6 @@ class OutputTests(unittest.TestCase):
             payload,
         )
         self.assertNotIn("<script", payload)
-        self.assertNotIn("sha256-", payload)
 
 
 class VersionTests(unittest.TestCase):

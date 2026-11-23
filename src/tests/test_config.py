@@ -49,17 +49,7 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(
             config.member_sources["edelap"], ("cammesa_edelap", "oceba_edelap")
         )
-        self.assertEqual(
-            set(config.sources),
-            {
-                "enre_edenor",
-                "enre_edesur",
-                "cammesa_edenor",
-                "cammesa_edesur",
-                "cammesa_edelap",
-                "oceba_edelap",
-            },
-        )
+        self.assertEqual(set(config.sources), set(DEFAULT_SOURCES))
         self.assertFalse(config.serve)
         self.assertEqual((config.host, config.port), ("127.0.0.1", 8000))
         self.assertEqual((config.timeout, config.ttl), (20.0, 60.0))
