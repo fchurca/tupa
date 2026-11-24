@@ -6,6 +6,8 @@ systems.
 
 It is named after Tupã, the Guaraní spirit of lightning, thunder, and storms. ⚡
 
+> 🇦🇷 A Spanish translateion of this document is maintained at [README-es.md](README-es.md).
+
 ## Philosophy
 
 In priority order:
@@ -21,7 +23,9 @@ In priority order:
 
 > Do one thing. Do it well.
 >
-> — Saint Doug of the House of McIlroy, scribe of the School of Unics in the Workshops of the Bell
+> - Saint Doug of the House of McIlroy, scribe of the School of Unics in the Workshops of the Bell
+
+![TUPA](./doc/tupa.png)
 
 ## Design
 
@@ -30,11 +34,11 @@ selectable via named arguments, environment, or JSON configuration and default
 to all. Each member combines several datasources and reports the worst known
 status. The output can be used directly or piped to a file and served;
 individual consumers are expected to know to select the members relevant to
-them. See [example.json](example.json). In daemon mode, TUPA serves an HTML
+them. See [doc/example.json](doc/example.json). In daemon mode, TUPA serves an HTML
 dashboard at `/` and JSON at `/api`. The dashboard sources list shows only
 sources active in the running instance.
 
-Configuration: [config.md](config.md). Most users should not need to change
+Configuration: [doc/config.md](doc/config.md). Most users should not need to change
 anything; defaults are intended to work. Normally only the listening address and
 port (and occasionally the timezone, which defaults to Argentina Time) are
 deployment settings.
@@ -75,8 +79,8 @@ automatable aggregator, not a replacement for independent monitoring services.
 
 ### Topology
 
-Implemented upstream context lives in [topology.md](topology.md) and
-[diagram.pu](diagram.pu).
+Implemented upstream context lives in [doc/topology.md](doc/topology.md) and
+[doc/diagram.pu](doc/diagram.pu).
 
 ### Status
 
@@ -84,7 +88,7 @@ A `member` carries a `status` (`operational`, `warn`, `high`,
 `disaster`, or `unknown`), a `comment`, and an `updated` timestamp. Colors
 (green, yellow, orange, red, grey) are display hints only. A `system` has its
 own `updated` timestamp and a `members` map keyed by member name. Timestamps
-are ISO 8601 / RFC 3339 strings. See the [CDDL schema](status.cddl).
+are ISO 8601 / RFC 3339 strings. See the [CDDL schema](doc/status.cddl).
 
 ENRE and OCEBA publish only a time of day in Argentina Time (ART); TUPA
 reconstructs the date from upstream metadata or the current ART date and

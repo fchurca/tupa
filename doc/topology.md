@@ -14,3 +14,4 @@
   - Role: provincial regulator publishing EDELAP interruption data
   - TUPA endpoint: `https://oceba.gba.gov.ar/nueva_web/s.php?distribuidora=1&i=123`
   - Documentation: `https://oceba.gba.gov.ar/nueva_web/s.php?i=124`
+

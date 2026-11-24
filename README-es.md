@@ -1,13 +1,13 @@
 # TUPA⚡: Telemetría Unificada de Potencia Argentina
 
-> **Aviso:** Este documento es una traducción. El documento maestro es
-> [README.md](README.md); en caso de discrepancia, prevalece ese archivo.
-
 TUPA es un proyecto destinado a agregar y mostrar el estado de la red
 eléctrica argentina, pensado para alimentar bots de mensajería y otros sistemas.
 
 Debe su nombre a Tupã, el espíritu guaraní del relámpago, el trueno y las
 tormentas. ⚡
+
+> **Aviso:** Este documento es una traducción. El documento maestro es
+> [README.md](README.md); en caso de discrepancia, prevalece ese archivo.
 
 ## Filosofía
 
@@ -23,7 +23,9 @@ En orden de prioridad:
 
 > Haz una cosa. Hazla bien.
 >
-> — San Doug de la Casa de McIlroy, escriba de la Escuela de Unics en los Talleres de la Campana
+> - San Doug de la Casa de McIlroy, escriba de la Escuela de Unics en los Talleres de la Campana
+
+![TUPA](./doc/tupa.png)
 
 ## Diseño
 
@@ -32,11 +34,11 @@ se seleccionan mediante opciones con nombre, variables de entorno o
 configuración JSON, y por defecto son todos. Cada miembro combina varias fuentes
 de datos e informa el peor estado conocido. La salida se puede usar directamente
 o redirigir a un archivo para servirla; se espera que cada consumidor sepa
-seleccionar los miembros relevantes. Véase [example.json](example.json). En modo
+seleccionar los miembros relevantes. Véase [doc/example.json](doc/example.json). En modo
 demonio, TUPA sirve un panel HTML en `/` y JSON en `/api`. La lista de fuentes
 del panel muestra solo las fuentes activas en la instancia.
 
-Configuración: [config.md](config.md) (en inglés). La mayoría de los usuarios no
+Configuración: [doc/config.md](doc/config.md) (en inglés). La mayoría de los usuarios no
 necesita cambiar nada: los valores por defecto están pensados para funcionar.
 Normalmente solo se ajustan la dirección y el puerto de escucha (y a veces la
 zona horaria, que por defecto es la de Argentina).
@@ -78,8 +80,8 @@ independientes.
 
 ### Topología
 
-El contexto de las fuentes implementadas está en [topology.md](topology.md) y
-[diagram.pu](diagram.pu).
+El contexto de las fuentes implementadas está en [doc/topology.md](doc/topology.md) y
+[doc/diagram.pu](doc/diagram.pu).
 
 ### Estado
 
@@ -88,7 +90,7 @@ Un `member` lleva un `status` (`operational`, `warn`,
 Los colores (verde, amarillo, naranja, rojo, gris) son solo indicaciones
 visuales. Un `system` tiene su propia marca de tiempo `updated` y un mapa
 `members` indexado por nombre de miembro. Las marcas de tiempo son cadenas
-ISO 8601 / RFC 3339. Consulte el [esquema CDDL](status.cddl).
+ISO 8601 / RFC 3339. Consulte el [esquema CDDL](doc/status.cddl).
 
 ENRE y OCEBA solo publican una hora del día en hora de Argentina (ART); TUPA
 reconstruye la fecha usando metadatos de la fuente o la fecha ART actual, y
