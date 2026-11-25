@@ -16,7 +16,7 @@ changing them without a specific reason can produce misleading status or make
 the service harder to operate.
 
 When running with Docker, environment variables are lifted from a `.env` file in
-the project directory. Copy the [`stack.env`](stack.env) template to `.env` and
+the project directory. Copy the [`stack.env`](../stack.env) template to `.env` and
 edit it; every supported variable is listed there with its default commented
 out. Compose interpolates `TZ` from the shell or `.env` for `TUPA_TZ=system`; it
 does not discover the host timezone. Output defaults to Argentina Time.

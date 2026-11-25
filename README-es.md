@@ -95,7 +95,7 @@ ISO 8601 / RFC 3339. Consulte el [esquema CDDL](doc/status.cddl).
 ENRE y OCEBA solo publican una hora del día en hora de Argentina (ART); TUPA
 reconstruye la fecha usando metadatos de la fuente o la fecha ART actual, y
 normaliza todas las marcas de tiempo a la zona horaria configurada. Consulte
-[config.md](config.md) para los detalles. Los cortes programados usan los mismos
+[doc/config.md](doc/config.md) para los detalles. Los cortes programados usan los mismos
 umbrales de severidad que cualquier otro corte.
 
 ## Contribuciones

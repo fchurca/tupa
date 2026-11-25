@@ -93,7 +93,7 @@ are ISO 8601 / RFC 3339 strings. See the [CDDL schema](doc/status.cddl).
 ENRE and OCEBA publish only a time of day in Argentina Time (ART); TUPA
 reconstructs the date from upstream metadata or the current ART date and
 normalizes every timestamp to the configured output timezone. See
-[config.md](config.md) for details. Planned outages use the same severity
+[doc/config.md](doc/config.md) for details. Planned outages use the same severity
 thresholds as any other outage.
 
 ## Contributing
